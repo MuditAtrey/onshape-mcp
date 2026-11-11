@@ -1,0 +1,14 @@
+{
+  "name": "onshape-mcp",
+  "owner": {
+    "name": "Mudit Atrey",
+    "url": "https://github.com/MuditAtrey"
+  },
+  "plugins": [
+    {
+      "name": "onshape-mcp",
+      "source": "./",
+      "description": "Onshape MCP — Claude Code plugin for driving real Onshape CAD. Vision-decomposition skill, truth-telling on every mutation, parametric iteration, FeatureScript custom features."
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "onshape": {
+      "command": "uv",
+      "args": ["run", "onshape-mcp"],
+      "env": {
+        "ONSHAPE_ACCESS_KEY": "${ONSHAPE_ACCESS_KEY}",
+        "ONSHAPE_SECRET_KEY": "${ONSHAPE_SECRET_KEY}"
+      }
+    }
+  }
+}

@@ -1,0 +1,2783 @@
+"""Tests for the MCP server."""
+
+import pytest
+from unittest.mock import Mock, AsyncMock, patch
+import httpx
+from mcp.types import Tool, TextContent
+
+# Import the server module components
+from onshape_mcp.server import list_tools, call_tool, _extract_offsets
+from onshape_mcp.api.variables import Variable
+from onshape_mcp.api.documents import DocumentInfo, ElementInfo
+
+
+class TestExtractOffsets:
+    """Test the _extract_offsets helper."""
+
+    def test_all_zero_returns_none(self):
+        assert _extract_offsets({"firstOffsetX": 0, "firstOffsetY": 0, "firstOffsetZ": 0}, "first") is None
+
+    def test_missing_keys_returns_none(self):
+        assert _extract_offsets({}, "first") is None
+
+    def test_nonzero_returns_tuple(self):
+        args = {"firstOffsetX": 1.5, "firstOffsetY": -2.0, "firstOffsetZ": 0.0}
+        assert _extract_offsets(args, "first") == (1.5, -2.0, 0.0)
+
+    def test_second_prefix(self):
+        args = {"secondOffsetX": 0, "secondOffsetY": 0, "secondOffsetZ": 3.0}
+        assert _extract_offsets(args, "second") == (0, 0, 3.0)
+
+
+class TestListTools:
+    """Test the list_tools handler."""
+
+    @pytest.mark.asyncio
+    async def test_list_tools_returns_all_tools(self):
+        """Test that list_tools returns all defined tools."""
+        tools = await list_tools()
+
+        assert isinstance(tools, list)
+        assert len(tools) > 0
+        assert all(isinstance(tool, Tool) for tool in tools)
+
+    @pytest.mark.asyncio
+    async def test_list_tools_includes_sketch_tool(self):
+        """Test that create_sketch_rectangle tool is included."""
+        tools = await list_tools()
+        tool_names = [tool.name for tool in tools]
+
+        assert "create_sketch_rectangle" in tool_names
+
+    @pytest.mark.asyncio
+    async def test_list_tools_includes_extrude_tool(self):
+        """Test that create_extrude tool is included."""
+        tools = await list_tools()
+        tool_names = [tool.name for tool in tools]
+
+        assert "create_extrude" in tool_names
+
+    @pytest.mark.asyncio
+    async def test_list_tools_includes_thicken_tool(self):
+        """Test that create_thicken tool is included."""
+        tools = await list_tools()
+        tool_names = [tool.name for tool in tools]
+
+        assert "create_thicken" in tool_names
+
+    @pytest.mark.asyncio
+    async def test_list_tools_includes_variable_tools(self):
+        """Test that variable management tools are included."""
+        tools = await list_tools()
+        tool_names = [tool.name for tool in tools]
+
+        assert "get_variables" in tool_names
+        assert "set_variable" in tool_names
+
+    @pytest.mark.asyncio
+    async def test_list_tools_includes_document_tools(self):
+        """Test that document management tools are included."""
+        tools = await list_tools()
+        tool_names = [tool.name for tool in tools]
+
+        assert "list_documents" in tool_names
+        assert "search_documents" in tool_names
+        assert "get_document" in tool_names
+        assert "get_document_summary" in tool_names
+        assert "find_part_studios" in tool_names
+        assert "create_document" in tool_names
+        assert "create_part_studio" in tool_names
+
+    @pytest.mark.asyncio
+    async def test_list_tools_includes_partstudio_tools(self):
+        """Test that Part Studio tools are included."""
+        tools = await list_tools()
+        tool_names = [tool.name for tool in tools]
+
+        assert "get_features" in tool_names
+        assert "get_parts" in tool_names
+        assert "get_elements" in tool_names
+        assert "get_assembly" in tool_names
+
+    @pytest.mark.asyncio
+    async def test_list_tools_includes_assembly_tools(self):
+        """Test that assembly management tools are included."""
+        tools = await list_tools()
+        tool_names = [tool.name for tool in tools]
+
+        assert "create_assembly" in tool_names
+        assert "add_assembly_instance" in tool_names
+        assert "transform_instance" in tool_names
+        assert "create_fastened_mate" in tool_names
+        assert "create_revolute_mate" in tool_names
+        assert "create_slider_mate" in tool_names
+        assert "create_cylindrical_mate" in tool_names
+        assert "create_mate_connector" in tool_names
+        assert "get_body_details" in tool_names
+        assert "get_assembly_features" in tool_names
+
+    @pytest.mark.asyncio
+    async def test_list_tools_includes_feature_tools(self):
+        """Test that feature builder tools are included."""
+        tools = await list_tools()
+        tool_names = [tool.name for tool in tools]
+
+        assert "create_sketch_circle" in tool_names
+        assert "create_sketch_line" in tool_names
+        assert "create_sketch_arc" in tool_names
+        assert "create_fillet" in tool_names
+        assert "create_chamfer" in tool_names
+        assert "create_revolve" in tool_names
+        assert "create_linear_pattern" in tool_names
+        assert "create_circular_pattern" in tool_names
+        assert "create_boolean" in tool_names
+
+    @pytest.mark.asyncio
+    async def test_list_tools_includes_featurescript_tools(self):
+        """Test that FeatureScript tools are included."""
+        tools = await list_tools()
+        tool_names = [tool.name for tool in tools]
+
+        assert "eval_featurescript" in tool_names
+        assert "get_bounding_box" in tool_names
+
+    @pytest.mark.asyncio
+    async def test_list_tools_includes_export_tools(self):
+        """Test that export tools are included."""
+        tools = await list_tools()
+        tool_names = [tool.name for tool in tools]
+
+        assert "export_part_studio" in tool_names
+        assert "export_assembly" in tool_names
+
+    @pytest.mark.asyncio
+    async def test_tool_schema_structure(self):
+        """Test that tools have proper schema structure."""
+        tools = await list_tools()
+
+        for tool in tools:
+            assert hasattr(tool, "name")
+            assert hasattr(tool, "description")
+            assert hasattr(tool, "inputSchema")
+            assert isinstance(tool.inputSchema, dict)
+            assert "type" in tool.inputSchema
+            assert "properties" in tool.inputSchema
+
+
+def _mock_apply_result(
+    *,
+    ok: bool = True,
+    status: str = "OK",
+    feature_id: str = "feature123",
+    feature_name: str = "Sketch",
+    feature_type: str = "newSketch",
+    error_message=None,
+):
+    """Build a FeatureApplyResult for use as a mock return value."""
+    from onshape_mcp.api.feature_apply import FeatureApplyResult
+
+    return FeatureApplyResult(
+        ok=ok,
+        status=status,
+        feature_id=feature_id,
+        feature_name=feature_name,
+        feature_type=feature_type,
+        error_message=error_message,
+        raw={},
+    )
+
+
+class TestCreateSketchRectangle:
+    """Test the create_sketch_rectangle tool handler (structured-JSON return)."""
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_feature_and_check")
+    @patch("onshape_mcp.server.partstudio_manager")
+    async def test_create_sketch_rectangle_success(self, mock_partstudio, mock_apply):
+        mock_partstudio.get_plane_id = AsyncMock(return_value="plane123")
+        mock_apply.return_value = _mock_apply_result(
+            feature_id="feature123", feature_name="TestSketch"
+        )
+
+        arguments = {
+            "documentId": "doc123",
+            "workspaceId": "workspace123",
+            "elementId": "element123",
+            "name": "TestSketch",
+            "plane": "Front",
+            "corner1": [0, 0],
+            "corner2": [10, 10],
+        }
+
+        result = await call_tool("create_sketch_rectangle", arguments)
+
+        assert isinstance(result, list) and len(result) == 1
+        assert isinstance(result[0], TextContent)
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        # Verify the stable-contract fields. `hints` is also emitted by
+        # _feature_apply_json now (status-based next-action pointers); drop
+        # it from the equality check since its content rotates over time.
+        parsed.pop("hints", None)
+        assert parsed == {
+            "ok": True,
+            "status": "OK",
+            "feature_id": "feature123",
+            "feature_type": "newSketch",
+            "feature_name": "TestSketch",
+            "error_message": None,
+            "tool": "create_sketch_rectangle",
+        }
+        mock_partstudio.get_plane_id.assert_called_once()
+        mock_apply.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_feature_and_check")
+    @patch("onshape_mcp.server.partstudio_manager")
+    async def test_create_sketch_rectangle_reports_onshape_error(
+        self, mock_partstudio, mock_apply
+    ):
+        """An Onshape-reported ERROR must surface as ok=false in the JSON."""
+        mock_partstudio.get_plane_id = AsyncMock(return_value="plane123")
+        mock_apply.return_value = _mock_apply_result(
+            ok=False, status="ERROR",
+            feature_id="brokenId",
+            error_message="Sketch is over-defined",
+        )
+
+        result = await call_tool("create_sketch_rectangle", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "corner1": [0, 0], "corner2": [1, 1],
+        })
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is False
+        assert parsed["status"] == "ERROR"
+        assert "over-defined" in (parsed["error_message"] or "")
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_feature_and_check")
+    @patch("onshape_mcp.server.partstudio_manager")
+    async def test_create_sketch_rectangle_with_variables(self, mock_partstudio, mock_apply):
+        mock_partstudio.get_plane_id = AsyncMock(return_value="plane123")
+        mock_apply.return_value = _mock_apply_result()
+
+        arguments = {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "corner1": [0, 0], "corner2": [10, 10],
+            "variableWidth": "width",
+            "variableHeight": "height",
+        }
+        result = await call_tool("create_sketch_rectangle", arguments)
+        assert isinstance(result[0], TextContent)
+        # Builder was given the variable names via sketch.add_rectangle.
+        mock_apply.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.partstudio_manager")
+    async def test_create_sketch_rectangle_error_handling(self, mock_partstudio):
+        """Plumbing failure (get_plane_id raises) yields status=EXCEPTION JSON."""
+        mock_partstudio.get_plane_id = AsyncMock(side_effect=Exception("API Error"))
+
+        result = await call_tool("create_sketch_rectangle", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "corner1": [0, 0], "corner2": [1, 1],
+        })
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is False
+        assert parsed["status"] == "EXCEPTION"
+        assert "API Error" in (parsed["error_message"] or "")
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_feature_and_check")
+    @patch("onshape_mcp.server.partstudio_manager")
+    async def test_create_sketch_rectangle_default_plane(self, mock_partstudio, mock_apply):
+        """Missing plane arg defaults to Front."""
+        mock_partstudio.get_plane_id = AsyncMock(return_value="plane123")
+        mock_apply.return_value = _mock_apply_result()
+
+        await call_tool("create_sketch_rectangle", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "corner1": [0, 0], "corner2": [10, 10],
+        })
+
+        mock_partstudio.get_plane_id.assert_called_once()
+        assert mock_partstudio.get_plane_id.call_args[0][3] == "Front"
+
+
+class TestCreateExtrude:
+    """Test the create_extrude tool handler (structured-JSON return)."""
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_feature_and_check")
+    async def test_create_extrude_success(self, mock_apply):
+        mock_apply.return_value = _mock_apply_result(
+            feature_id="extrude123", feature_name="TestExtrude", feature_type="extrude"
+        )
+
+        result = await call_tool("create_extrude", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "name": "TestExtrude",
+            "sketchFeatureId": "sketch123",
+            "depth": 5.0,
+        })
+
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is True
+        assert parsed["feature_id"] == "extrude123"
+        assert parsed["feature_name"] == "TestExtrude"
+        assert parsed["feature_type"] == "extrude"
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_feature_and_check")
+    async def test_create_extrude_reports_onshape_error(self, mock_apply):
+        """ERROR featureStatus surfaces as ok=false (the whole point)."""
+        mock_apply.return_value = _mock_apply_result(
+            ok=False, status="ERROR",
+            feature_id="ext_err", feature_type="extrude",
+            error_message="Sketch region is empty",
+        )
+
+        result = await call_tool("create_extrude", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "sketchFeatureId": "sketch123", "depth": 5.0,
+        })
+
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is False
+        assert parsed["status"] == "ERROR"
+        assert "Sketch region" in (parsed["error_message"] or "")
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_feature_and_check")
+    async def test_create_extrude_with_variable_depth(self, mock_apply):
+        mock_apply.return_value = _mock_apply_result(feature_type="extrude")
+
+        result = await call_tool("create_extrude", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "sketchFeatureId": "sketch123",
+            "depth": 5.0, "variableDepth": "extrude_depth",
+        })
+        import json as _json
+        assert _json.loads(result[0].text)["ok"] is True
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_feature_and_check")
+    async def test_create_extrude_with_operation_type(self, mock_apply):
+        mock_apply.return_value = _mock_apply_result(feature_type="extrude")
+
+        for op_type in ["NEW", "ADD", "REMOVE", "INTERSECT"]:
+            result = await call_tool("create_extrude", {
+                "documentId": "d", "workspaceId": "w", "elementId": "e",
+                "sketchFeatureId": "sketch123", "depth": 5.0,
+                "operationType": op_type,
+            })
+            import json as _json
+            assert _json.loads(result[0].text)["ok"] is True
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_feature_and_check")
+    async def test_create_extrude_http_error(self, mock_apply):
+        mock_response = Mock()
+        mock_response.status_code = 404
+        mock_response.text = "Sketch not found"
+        mock_apply.side_effect = httpx.HTTPStatusError(
+            "Not Found", request=Mock(), response=mock_response
+        )
+
+        result = await call_tool("create_extrude", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "sketchFeatureId": "invalid", "depth": 5.0,
+        })
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is False
+        assert parsed["status"] == "EXCEPTION"
+        assert "404" in (parsed["error_message"] or "")
+
+    @pytest.mark.asyncio
+    async def test_create_extrude_invalid_operation_type(self):
+        """Bad enum value -> EXCEPTION JSON with clear message."""
+        result = await call_tool("create_extrude", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "sketchFeatureId": "sketch123", "depth": 5.0,
+            "operationType": "INVALID",
+        })
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is False
+        assert parsed["status"] == "EXCEPTION"
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_feature_and_check")
+    async def test_create_extrude_symmetric_end_type(self, mock_apply):
+        """endType=SYMMETRIC reaches the builder and lands in the payload."""
+        mock_apply.return_value = _mock_apply_result(feature_type="extrude")
+
+        await call_tool("create_extrude", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "sketchFeatureId": "sketch123", "depth": 10.0,
+            "endType": "SYMMETRIC",
+        })
+
+        payload = mock_apply.await_args[0][4]
+        sym_param = next(
+            p for p in payload["feature"]["parameters"]
+            if p["parameterId"] == "symmetric"
+        )
+        assert sym_param["value"] is True
+
+    @pytest.mark.asyncio
+    async def test_create_extrude_invalid_end_type(self):
+        """Bad endType value -> EXCEPTION JSON."""
+        result = await call_tool("create_extrude", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "sketchFeatureId": "sketch123", "depth": 5.0,
+            "endType": "NOT_A_THING",
+        })
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is False
+        assert parsed["status"] == "EXCEPTION"
+        assert "endType" in (parsed["error_message"] or "")
+
+
+class TestCreateThicken:
+    """Test the create_thicken tool handler (structured-JSON return)."""
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_feature_and_check")
+    async def test_create_thicken_success(self, mock_apply):
+        mock_apply.return_value = _mock_apply_result(
+            feature_id="thicken123", feature_name="TestThicken", feature_type="thicken"
+        )
+
+        result = await call_tool("create_thicken", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "name": "TestThicken",
+            "sketchFeatureId": "sketch123",
+            "thickness": 0.5,
+        })
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is True
+        assert parsed["feature_id"] == "thicken123"
+        assert parsed["feature_name"] == "TestThicken"
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_feature_and_check")
+    async def test_create_thicken_wraps_feature_envelope(self, mock_apply):
+        """ThickenBuilder returns a bare dict; handler must wrap it in {feature: ...}."""
+        mock_apply.return_value = _mock_apply_result(feature_type="thicken")
+
+        await call_tool("create_thicken", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "sketchFeatureId": "sketch123", "thickness": 0.5,
+        })
+
+        payload = mock_apply.await_args[0][4]  # 5th positional: feature_payload
+        assert "feature" in payload
+        assert payload["feature"].get("featureType") == "thicken"
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_feature_and_check")
+    async def test_create_thicken_with_options(self, mock_apply):
+        mock_apply.return_value = _mock_apply_result(feature_type="thicken")
+
+        result = await call_tool("create_thicken", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "sketchFeatureId": "sketch123",
+            "thickness": 0.5,
+            "midplane": True,
+            "oppositeDirection": True,
+        })
+        import json as _json
+        assert _json.loads(result[0].text)["ok"] is True
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_feature_and_check")
+    async def test_create_thicken_error_handling(self, mock_apply):
+        mock_apply.side_effect = Exception("API Error")
+
+        result = await call_tool("create_thicken", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "sketchFeatureId": "sketch123", "thickness": 0.5,
+        })
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is False
+        assert parsed["status"] == "EXCEPTION"
+        assert "API Error" in (parsed["error_message"] or "")
+
+
+class TestVariableOperations:
+    """Test variable management tool handlers."""
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.variable_manager")
+    async def test_get_variables_success(self, mock_variable_manager):
+        """Test successful retrieval of variables."""
+        mock_variables = [
+            Variable(name="width", expression="10 in", description="Width"),
+            Variable(name="height", expression="5 in", description="Height"),
+        ]
+        mock_variable_manager.get_variables = AsyncMock(return_value=mock_variables)
+
+        arguments = {
+            "documentId": "doc123",
+            "workspaceId": "workspace123",
+            "elementId": "element123",
+        }
+
+        result = await call_tool("get_variables", arguments)
+
+        assert isinstance(result, list)
+        assert len(result) == 1
+        assert "width" in result[0].text
+        assert "height" in result[0].text
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.variable_manager")
+    async def test_get_variables_empty(self, mock_variable_manager):
+        """Test retrieval when no variables exist."""
+        mock_variable_manager.get_variables = AsyncMock(return_value=[])
+
+        arguments = {
+            "documentId": "doc123",
+            "workspaceId": "workspace123",
+            "elementId": "element123",
+        }
+
+        result = await call_tool("get_variables", arguments)
+
+        assert isinstance(result, list)
+        assert len(result) == 1
+        assert "No variables" in result[0].text
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.variable_manager")
+    async def test_set_variable_success(self, mock_variable_manager):
+        """Test successful variable creation/update."""
+        mock_variable_manager.set_variable = AsyncMock(return_value={"success": True})
+
+        arguments = {
+            "documentId": "doc123",
+            "workspaceId": "workspace123",
+            "elementId": "element123",
+            "name": "depth",
+            "expression": "2.5 in",
+            "description": "Extrude depth",
+        }
+
+        result = await call_tool("set_variable", arguments)
+
+        assert isinstance(result, list)
+        assert len(result) == 1
+        assert "depth" in result[0].text
+        assert "2.5 in" in result[0].text
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.variable_manager")
+    async def test_set_variable_without_description(self, mock_variable_manager):
+        """Test variable creation without description."""
+        mock_variable_manager.set_variable = AsyncMock(return_value={"success": True})
+
+        arguments = {
+            "documentId": "doc123",
+            "workspaceId": "workspace123",
+            "elementId": "element123",
+            "name": "depth",
+            "expression": "2.5 in",
+        }
+
+        result = await call_tool("set_variable", arguments)
+
+        assert isinstance(result, list)
+        assert len(result) == 1
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.variable_manager")
+    async def test_variable_operations_error(self, mock_variable_manager):
+        """Test error handling in variable operations."""
+        mock_variable_manager.get_variables = AsyncMock(side_effect=Exception("API Error"))
+
+        arguments = {
+            "documentId": "doc123",
+            "workspaceId": "workspace123",
+            "elementId": "element123",
+        }
+
+        result = await call_tool("get_variables", arguments)
+
+        assert isinstance(result, list)
+        assert "Error" in result[0].text
+
+
+class TestDocumentOperations:
+    """Test document management tool handlers."""
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.document_manager")
+    async def test_list_documents_success(self, mock_document_manager):
+        """Test successful document listing."""
+        from datetime import datetime
+        mock_docs = [
+            DocumentInfo(
+                id="doc1",
+                name="Document 1",
+                createdAt=datetime(2024, 1, 1),
+                modifiedAt=datetime(2024, 1, 1),
+                ownerId="user1",
+            ),
+            DocumentInfo(
+                id="doc2",
+                name="Document 2",
+                createdAt=datetime(2024, 1, 2),
+                modifiedAt=datetime(2024, 1, 2),
+                ownerId="user2",
+            ),
+        ]
+        mock_document_manager.list_documents = AsyncMock(return_value=mock_docs)
+
+        arguments = {}
+
+        result = await call_tool("list_documents", arguments)
+
+        assert isinstance(result, list)
+        assert len(result) == 1
+        assert "Document 1" in result[0].text
+        assert "Document 2" in result[0].text
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.document_manager")
+    async def test_list_documents_with_filters(self, mock_document_manager):
+        """Test document listing with filters."""
+        mock_document_manager.list_documents = AsyncMock(return_value=[])
+
+        arguments = {
+            "filterType": "owned",
+            "sortBy": "name",
+            "sortOrder": "asc",
+            "limit": 10,
+        }
+
+        result = await call_tool("list_documents", arguments)
+
+        assert isinstance(result, list)
+        mock_document_manager.list_documents.assert_called_once()
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.document_manager")
+    async def test_search_documents_success(self, mock_document_manager):
+        """Test successful document search."""
+        from datetime import datetime
+        mock_docs = [
+            DocumentInfo(
+                id="doc1",
+                name="Test Document",
+                createdAt=datetime(2024, 1, 1),
+                modifiedAt=datetime(2024, 1, 1),
+                ownerId="user1",
+            )
+        ]
+        mock_document_manager.search_documents = AsyncMock(return_value=mock_docs)
+
+        arguments = {"query": "test", "limit": 20}
+
+        result = await call_tool("search_documents", arguments)
+
+        assert isinstance(result, list)
+        assert "Test Document" in result[0].text
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.document_manager")
+    async def test_get_document_success(self, mock_document_manager):
+        """Test successful document retrieval."""
+        from datetime import datetime
+        mock_doc = DocumentInfo(
+            id="doc123",
+            name="Test Document",
+            createdAt=datetime(2024, 1, 1),
+            modifiedAt=datetime(2024, 1, 1),
+            ownerId="user1",
+        )
+        mock_document_manager.get_document = AsyncMock(return_value=mock_doc)
+
+        arguments = {"documentId": "doc123"}
+
+        result = await call_tool("get_document", arguments)
+
+        assert isinstance(result, list)
+        assert "Test Document" in result[0].text
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.document_manager")
+    async def test_get_document_summary_success(self, mock_document_manager):
+        """Test successful document summary retrieval."""
+        from datetime import datetime
+        # get_document_summary returns a structured dict with document and workspace details
+        mock_summary = {
+            "document": DocumentInfo(
+                id="doc123",
+                name="Test Document",
+                createdAt=datetime(2024, 1, 1),
+                modifiedAt=datetime(2024, 1, 1),
+                ownerId="user1",
+            ),
+            "workspaces": [],
+            "workspace_details": [],
+        }
+        mock_document_manager.get_document_summary = AsyncMock(return_value=mock_summary)
+
+        arguments = {"documentId": "doc123"}
+
+        result = await call_tool("get_document_summary", arguments)
+
+        assert isinstance(result, list)
+        assert "Test Document" in result[0].text
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.document_manager")
+    async def test_find_part_studios_success(self, mock_document_manager):
+        """Test finding Part Studios."""
+        mock_studios = [
+            ElementInfo(id="ps1", name="Part Studio 1", elementType="PARTSTUDIO"),
+            ElementInfo(id="ps2", name="Part Studio 2", elementType="PARTSTUDIO"),
+        ]
+        mock_document_manager.find_part_studios = AsyncMock(return_value=mock_studios)
+
+        arguments = {"documentId": "doc123", "workspaceId": "ws123"}
+
+        result = await call_tool("find_part_studios", arguments)
+
+        assert isinstance(result, list)
+        assert "Part Studio 1" in result[0].text
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.document_manager")
+    async def test_document_operations_error(self, mock_document_manager):
+        """Test error handling in document operations."""
+        mock_document_manager.list_documents = AsyncMock(side_effect=Exception("API Error"))
+
+        arguments = {}
+
+        result = await call_tool("list_documents", arguments)
+
+        assert isinstance(result, list)
+        assert "Error" in result[0].text
+
+
+class TestPartStudioOperations:
+    """Test Part Studio tool handlers."""
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.partstudio_manager")
+    async def test_get_features_success(self, mock_partstudio):
+        """Test successful feature retrieval."""
+        mock_features = [
+            {"featureId": "f1", "name": "Sketch 1"},
+            {"featureId": "f2", "name": "Extrude 1"},
+        ]
+        mock_partstudio.get_features = AsyncMock(return_value=mock_features)
+
+        arguments = {
+            "documentId": "doc123",
+            "workspaceId": "ws123",
+            "elementId": "el123",
+        }
+
+        result = await call_tool("get_features", arguments)
+
+        assert isinstance(result, list)
+        assert "Sketch 1" in result[0].text
+        assert "Extrude 1" in result[0].text
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.partstudio_manager")
+    async def test_get_parts_success(self, mock_partstudio):
+        """Test successful parts retrieval."""
+        mock_parts = [
+            {"partId": "p1", "name": "Part 1"},
+            {"partId": "p2", "name": "Part 2"},
+        ]
+        mock_partstudio.get_parts = AsyncMock(return_value=mock_parts)
+
+        arguments = {
+            "documentId": "doc123",
+            "workspaceId": "ws123",
+            "elementId": "el123",
+        }
+
+        result = await call_tool("get_parts", arguments)
+
+        assert isinstance(result, list)
+        assert "Part 1" in result[0].text
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.document_manager")
+    async def test_get_elements_success(self, mock_document_manager):
+        """Test successful element retrieval."""
+        mock_elements = [
+            ElementInfo(id="el1", name="Part Studio", elementType="PARTSTUDIO"),
+            ElementInfo(id="el2", name="Assembly", elementType="ASSEMBLY"),
+        ]
+        mock_document_manager.get_elements = AsyncMock(return_value=mock_elements)
+
+        arguments = {"documentId": "doc123", "workspaceId": "ws123"}
+
+        result = await call_tool("get_elements", arguments)
+
+        assert isinstance(result, list)
+        assert "Part Studio" in result[0].text
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.document_manager")
+    async def test_get_elements_with_type_filter(self, mock_document_manager):
+        """Test element retrieval with type filter."""
+        mock_document_manager.get_elements = AsyncMock(return_value=[])
+
+        arguments = {
+            "documentId": "doc123",
+            "workspaceId": "ws123",
+            "elementType": "PARTSTUDIO",
+        }
+
+        result = await call_tool("get_elements", arguments)
+
+        assert isinstance(result, list)
+
+
+class TestGetAssembly:
+    """Test get_assembly tool handler."""
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.assembly_manager")
+    async def test_get_assembly_success(self, mock_asm):
+        """Test successful assembly retrieval."""
+        mock_assembly = {
+            "rootAssembly": {
+                "instances": [{"id": "inst1", "name": "Instance 1"}],
+                "occurrences": [{"path": ["occ1"]}],
+            }
+        }
+        mock_asm.get_assembly_definition = AsyncMock(return_value=mock_assembly)
+
+        arguments = {
+            "documentId": "doc123",
+            "workspaceId": "ws123",
+            "elementId": "asm123",
+        }
+
+        result = await call_tool("get_assembly", arguments)
+
+        assert isinstance(result, list)
+        assert len(result) == 1
+        assert "Instance 1" in result[0].text
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.assembly_manager")
+    async def test_get_assembly_error(self, mock_asm):
+        """Test error handling in assembly retrieval."""
+        mock_asm.get_assembly_definition = AsyncMock(side_effect=Exception("API Error"))
+
+        arguments = {
+            "documentId": "doc123",
+            "workspaceId": "ws123",
+            "elementId": "asm123",
+        }
+
+        result = await call_tool("get_assembly", arguments)
+
+        assert isinstance(result, list)
+        assert "Error" in result[0].text
+
+
+class TestCreateDocumentTool:
+    """Test create_document tool handler."""
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.document_manager")
+    async def test_create_document_success(self, mock_document_manager):
+        """Test successful document creation via tool."""
+        from datetime import datetime
+
+        mock_doc = DocumentInfo(
+            id="new_doc_123",
+            name="New Document",
+            createdAt=datetime(2024, 1, 1),
+            modifiedAt=datetime(2024, 1, 1),
+            ownerId="user1",
+        )
+        mock_document_manager.create_document = AsyncMock(return_value=mock_doc)
+
+        arguments = {"name": "New Document"}
+
+        result = await call_tool("create_document", arguments)
+
+        assert isinstance(result, list)
+        assert len(result) == 1
+        assert isinstance(result[0], TextContent)
+        assert "New Document" in result[0].text
+        assert "new_doc_123" in result[0].text
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.document_manager")
+    async def test_create_document_with_options(self, mock_document_manager):
+        """Test document creation with description and isPublic."""
+        from datetime import datetime
+
+        mock_doc = DocumentInfo(
+            id="new_doc_456",
+            name="Public Doc",
+            createdAt=datetime(2024, 1, 1),
+            modifiedAt=datetime(2024, 1, 1),
+            ownerId="user1",
+            public=True,
+            description="A public document",
+        )
+        mock_document_manager.create_document = AsyncMock(return_value=mock_doc)
+
+        arguments = {
+            "name": "Public Doc",
+            "description": "A public document",
+            "isPublic": True,
+        }
+
+        result = await call_tool("create_document", arguments)
+
+        assert isinstance(result, list)
+        assert "Public Doc" in result[0].text
+        mock_document_manager.create_document.assert_called_once_with(
+            name="Public Doc",
+            description="A public document",
+            is_public=True,
+        )
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.document_manager")
+    async def test_create_document_http_error(self, mock_document_manager):
+        """Test document creation with HTTP error."""
+        mock_response = Mock()
+        mock_response.status_code = 403
+        mock_response.text = "Forbidden"
+        mock_document_manager.create_document = AsyncMock(
+            side_effect=httpx.HTTPStatusError(
+                "Forbidden", request=Mock(), response=mock_response
+            )
+        )
+
+        arguments = {"name": "Forbidden Doc"}
+
+        result = await call_tool("create_document", arguments)
+
+        assert isinstance(result, list)
+        assert "Error" in result[0].text
+        assert "403" in result[0].text
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.document_manager")
+    async def test_create_document_generic_error(self, mock_document_manager):
+        """Test document creation with generic error."""
+        mock_document_manager.create_document = AsyncMock(
+            side_effect=Exception("Unexpected error")
+        )
+
+        arguments = {"name": "Error Doc"}
+
+        result = await call_tool("create_document", arguments)
+
+        assert isinstance(result, list)
+        assert "Error" in result[0].text
+
+
+class TestCreatePartStudioTool:
+    """Test create_part_studio tool handler (structured JSON + sibling list)."""
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.document_manager")
+    @patch("onshape_mcp.server.partstudio_manager")
+    async def test_create_part_studio_success(self, mock_partstudio, mock_docs):
+        """Response includes the new element id plus any sibling Part Studios."""
+        from onshape_mcp.api.documents import ElementInfo
+
+        mock_partstudio.create_part_studio = AsyncMock(
+            return_value={"id": "new_ps_123", "name": "My Part Studio"}
+        )
+        # Workspace has the default empty PS plus the one we just created.
+        mock_docs.find_part_studios = AsyncMock(
+            return_value=[
+                ElementInfo(id="default_ps", name="Part Studio 1", elementType="PARTSTUDIO"),
+                ElementInfo(id="new_ps_123", name="My Part Studio", elementType="PARTSTUDIO"),
+            ]
+        )
+
+        result = await call_tool("create_part_studio", {
+            "documentId": "doc123",
+            "workspaceId": "ws123",
+            "name": "My Part Studio",
+        })
+
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is True
+        assert parsed["status"] == "OK"
+        assert parsed["element_id"] == "new_ps_123"
+        assert parsed["element_name"] == "My Part Studio"
+        # Sibling list excludes the newly-created element, surfaces the default.
+        siblings = {(p["id"], p["name"]) for p in parsed["other_part_studios"]}
+        assert siblings == {("default_ps", "Part Studio 1")}
+        assert parsed["tool"] == "create_part_studio"
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.document_manager")
+    @patch("onshape_mcp.server.partstudio_manager")
+    async def test_create_part_studio_no_siblings(self, mock_partstudio, mock_docs):
+        """Fresh doc where the new PS is the only one — other_part_studios is []."""
+        from onshape_mcp.api.documents import ElementInfo
+
+        mock_partstudio.create_part_studio = AsyncMock(
+            return_value={"id": "ps_alone", "name": "Solo"}
+        )
+        mock_docs.find_part_studios = AsyncMock(
+            return_value=[
+                ElementInfo(id="ps_alone", name="Solo", elementType="PARTSTUDIO"),
+            ]
+        )
+
+        result = await call_tool("create_part_studio", {
+            "documentId": "d", "workspaceId": "w", "name": "Solo",
+        })
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is True
+        assert parsed["other_part_studios"] == []
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.document_manager")
+    @patch("onshape_mcp.server.partstudio_manager")
+    async def test_create_part_studio_survives_sibling_enum_failure(
+        self, mock_partstudio, mock_docs
+    ):
+        """If find_part_studios blows up, the tool still returns ok=true."""
+        mock_partstudio.create_part_studio = AsyncMock(
+            return_value={"id": "new_id", "name": "X"}
+        )
+        mock_docs.find_part_studios = AsyncMock(side_effect=Exception("network"))
+
+        result = await call_tool("create_part_studio", {
+            "documentId": "d", "workspaceId": "w", "name": "X",
+        })
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is True
+        assert parsed["element_id"] == "new_id"
+        assert parsed["other_part_studios"] == []
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.partstudio_manager")
+    async def test_create_part_studio_http_error(self, mock_partstudio):
+        """HTTP failure during create_part_studio surfaces as structured EXCEPTION."""
+        mock_response = Mock()
+        mock_response.status_code = 404
+        mock_response.text = "Document not found"
+        mock_partstudio.create_part_studio = AsyncMock(
+            side_effect=httpx.HTTPStatusError(
+                "Not Found", request=Mock(), response=mock_response
+            )
+        )
+
+        result = await call_tool("create_part_studio", {
+            "documentId": "invalid_doc",
+            "workspaceId": "ws123",
+            "name": "Part Studio",
+        })
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is False
+        assert parsed["status"] == "EXCEPTION"
+        assert "404" in (parsed["error_message"] or "")
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.partstudio_manager")
+    async def test_create_part_studio_generic_error(self, mock_partstudio):
+        mock_partstudio.create_part_studio = AsyncMock(
+            side_effect=Exception("Unexpected error")
+        )
+
+        result = await call_tool("create_part_studio", {
+            "documentId": "d", "workspaceId": "w", "name": "PS",
+        })
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is False
+        assert parsed["status"] == "EXCEPTION"
+        assert "Unexpected error" in (parsed["error_message"] or "")
+
+
+class TestAssemblyTools:
+    """Test assembly tool handlers (structured-JSON return, mm-default units)."""
+
+    # ---- create_assembly -------------------------------------------------
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.assembly_manager")
+    async def test_create_assembly_success(self, mock_asm):
+        mock_asm.create_assembly = AsyncMock(return_value={"id": "asm123"})
+
+        result = await call_tool("create_assembly", {
+            "documentId": "doc123", "workspaceId": "ws123", "name": "TestAssembly",
+        })
+
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is True
+        assert parsed["status"] == "OK"
+        assert parsed["element_id"] == "asm123"
+        assert parsed["element_name"] == "TestAssembly"
+        assert parsed["tool"] == "create_assembly"
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.assembly_manager")
+    async def test_create_assembly_error(self, mock_asm):
+        mock_asm.create_assembly = AsyncMock(side_effect=Exception("API Error"))
+
+        result = await call_tool("create_assembly", {
+            "documentId": "d", "workspaceId": "w", "name": "A",
+        })
+
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is False
+        assert parsed["status"] == "EXCEPTION"
+        assert "API Error" in (parsed["error_message"] or "")
+
+    # ---- add_assembly_instance ------------------------------------------
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.assembly_manager")
+    async def test_add_assembly_instance_success(self, mock_asm):
+        """Handler diffs pre/post instance lists to surface the new instance id.
+
+        Onshape's add_instance itself returns {}; the pre/post diff is how
+        the tool carries the instance_id out.
+        """
+        mock_asm.add_instance = AsyncMock(return_value={})
+        # First get_assembly_definition: empty. Second: with the new instance.
+        mock_asm.get_assembly_definition = AsyncMock(side_effect=[
+            {"rootAssembly": {"instances": []}},
+            {"rootAssembly": {"instances": [
+                {"id": "inst1", "name": "Part 1"},
+            ]}},
+        ])
+
+        result = await call_tool("add_assembly_instance", {
+            "documentId": "doc123", "workspaceId": "ws123", "elementId": "asm123",
+            "partStudioElementId": "ps123", "partId": "part1",
+        })
+
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is True
+        assert parsed["status"] == "OK"
+        assert parsed["instance_id"] == "inst1"
+        assert parsed["instance_name"] == "Part 1"
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.assembly_manager")
+    async def test_add_assembly_instance_error(self, mock_asm):
+        mock_asm.get_assembly_definition = AsyncMock(return_value={"rootAssembly": {"instances": []}})
+        mock_asm.add_instance = AsyncMock(side_effect=Exception("fail"))
+
+        result = await call_tool("add_assembly_instance", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "partStudioElementId": "ps",
+        })
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is False
+        assert parsed["status"] == "EXCEPTION"
+
+    # ---- transform_instance ---------------------------------------------
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.assembly_manager")
+    async def test_transform_instance_success(self, mock_asm):
+        """Bare numeric translate values pass through as mm."""
+        mock_asm.transform_occurrences = AsyncMock(return_value={})
+
+        result = await call_tool("transform_instance", {
+            "documentId": "doc123", "workspaceId": "ws123", "elementId": "asm123",
+            "instanceId": "inst1",
+            "translateX": 5.0, "translateY": 0.0, "translateZ": 0.0,
+        })
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is True
+        assert parsed["status"] == "OK"
+        assert parsed["instance_id"] == "inst1"
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.assembly_manager")
+    async def test_transform_instance_accepts_unit_strings(self, mock_asm):
+        """`translateX: "0.5 in"` parses and reaches the transform_occurrences call."""
+        mock_asm.transform_occurrences = AsyncMock(return_value={})
+
+        await call_tool("transform_instance", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "instanceId": "i",
+            "translateX": "0.5 in", "translateY": "10 mm", "translateZ": 0,
+        })
+        # The transform matrix carries meters; 0.5 in = 0.0127 m
+        sent = mock_asm.transform_occurrences.await_args
+        occurrences = sent.kwargs.get("occurrences") or sent.args[3]
+        transform = occurrences[0]["transform"]
+        assert abs(transform[3] - 0.0127) < 1e-6   # X
+        assert abs(transform[7] - 0.010) < 1e-6    # Y
+        assert abs(transform[11] - 0.0) < 1e-6     # Z
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.assembly_manager")
+    async def test_transform_instance_error(self, mock_asm):
+        mock_asm.transform_occurrences = AsyncMock(side_effect=Exception("fail"))
+
+        result = await call_tool("transform_instance", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e", "instanceId": "i",
+        })
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is False
+        assert parsed["status"] == "EXCEPTION"
+
+    # ---- mates: helpers --------------------------------------------------
+    #
+    # The 4 mate handlers route through `_create_mate`, which in turn calls
+    # `apply_assembly_feature_and_check` three times (MC1, MC2, mate). We
+    # patch that helper to return FeatureApplyResults side-effected by
+    # `side_effect=[...]` so the test can control per-step status without
+    # mocking client.post.
+
+    @staticmethod
+    def _mk_result(
+        *, feature_id: str = "fid", feature_name: str = "", feature_type: str = "mate",
+        ok: bool = True, status: str = "OK", error_message=None,
+    ):
+        from onshape_mcp.api.feature_apply import FeatureApplyResult
+        return FeatureApplyResult(
+            ok=ok, status=status, feature_id=feature_id,
+            feature_name=feature_name, feature_type=feature_type,
+            error_message=error_message, raw={},
+        )
+
+    # ---- create_fastened_mate -------------------------------------------
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_assembly_feature_and_check")
+    async def test_create_fastened_mate_success(self, mock_apply):
+        """Three helper calls: MC1 OK, MC2 OK, mate OK. Final return = mate result."""
+        mock_apply.side_effect = [
+            self._mk_result(feature_id="mc1_id", feature_type="mateConnector"),
+            self._mk_result(feature_id="mc2_id", feature_type="mateConnector"),
+            self._mk_result(feature_id="mate123", feature_name="MyMate", feature_type="mate"),
+        ]
+
+        result = await call_tool("create_fastened_mate", {
+            "documentId": "d", "workspaceId": "w", "elementId": "asm123",
+            "firstInstanceId": "inst1", "secondInstanceId": "inst2",
+            "firstFaceId": "JHW", "secondFaceId": "JKW",
+            "name": "MyMate",
+        })
+
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is True
+        assert parsed["status"] == "OK"
+        assert parsed["feature_id"] == "mate123"
+        assert parsed["feature_name"] == "MyMate"
+        assert parsed["tool"] == "create_fastened_mate"
+        assert mock_apply.await_count == 3
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_assembly_feature_and_check")
+    async def test_create_fastened_mate_with_offsets(self, mock_apply):
+        """Bare numeric offsets are mm; reach MC builder's set_translation."""
+        mock_apply.side_effect = [
+            self._mk_result(feature_id="mc1", feature_type="mateConnector"),
+            self._mk_result(feature_id="mc2", feature_type="mateConnector"),
+            self._mk_result(feature_id="mate_off", feature_type="mate"),
+        ]
+
+        await call_tool("create_fastened_mate", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "firstInstanceId": "inst1", "secondInstanceId": "inst2",
+            "firstFaceId": "JHW", "secondFaceId": "JKW",
+            "name": "Offset Mate",
+            "firstOffsetX": 2.5, "firstOffsetY": -1.0,
+            "secondOffsetZ": 0.5,
+        })
+        # MC1 payload (first apply call) should carry a transform parameter
+        # because firstOffset* was provided.
+        mc1_payload = mock_apply.await_args_list[0].args[4]
+        params = mc1_payload["feature"]["parameters"]
+        param_ids = [p["parameterId"] for p in params]
+        assert "transform" in param_ids
+        # Values should be mm -> meters: 2.5 mm = 0.0025 m
+        tx = next(p for p in params if p["parameterId"] == "translationX")
+        assert "0.0025 m" in tx["expression"]
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_assembly_feature_and_check")
+    async def test_create_fastened_mate_accepts_unit_string_offsets(self, mock_apply):
+        mock_apply.side_effect = [
+            self._mk_result(feature_id="mc1"),
+            self._mk_result(feature_id="mc2"),
+            self._mk_result(feature_id="mate_u"),
+        ]
+        await call_tool("create_fastened_mate", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "firstInstanceId": "a", "secondInstanceId": "b",
+            "firstFaceId": "f1", "secondFaceId": "f2",
+            "firstOffsetX": "0.5 in",
+        })
+        mc1_payload = mock_apply.await_args_list[0].args[4]
+        tx = next(
+            p for p in mc1_payload["feature"]["parameters"]
+            if p.get("parameterId") == "translationX"
+        )
+        assert "0.0127 m" in tx["expression"]  # 0.5 in = 12.7 mm = 0.0127 m
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_assembly_feature_and_check")
+    async def test_create_fastened_mate_mc1_error_short_circuits(self, mock_apply):
+        """If MC1 errors, the helper returns that result and doesn't call MC2 or mate."""
+        mock_apply.side_effect = [
+            self._mk_result(
+                ok=False, status="ERROR", feature_id="mc1_bad",
+                feature_type="mateConnector",
+                error_message="Face id invalid",
+            ),
+        ]
+        result = await call_tool("create_fastened_mate", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "firstInstanceId": "a", "secondInstanceId": "b",
+            "firstFaceId": "bogus", "secondFaceId": "f2",
+        })
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is False
+        assert parsed["status"] == "ERROR"
+        assert "Face id invalid" in (parsed["error_message"] or "")
+        # Only MC1 attempted.
+        assert mock_apply.await_count == 1
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_assembly_feature_and_check")
+    async def test_create_fastened_mate_error(self, mock_apply):
+        mock_apply.side_effect = Exception("fail")
+        result = await call_tool("create_fastened_mate", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "firstInstanceId": "a", "secondInstanceId": "b",
+            "firstFaceId": "f1", "secondFaceId": "f2",
+        })
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is False
+        assert parsed["status"] == "EXCEPTION"
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_assembly_feature_and_check")
+    async def test_create_fastened_mate_http_error(self, mock_apply):
+        """HTTPStatusError wraps as EXCEPTION with the status code inline."""
+        import httpx
+        response = Mock()
+        response.status_code = 400
+        response.text = "Bad request: invalid instance"
+        mock_apply.side_effect = httpx.HTTPStatusError(
+            "error", request=Mock(), response=response,
+        )
+        result = await call_tool("create_fastened_mate", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "firstInstanceId": "a", "secondInstanceId": "b",
+            "firstFaceId": "f1", "secondFaceId": "f2",
+        })
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is False
+        assert parsed["status"] == "EXCEPTION"
+        assert "400" in (parsed["error_message"] or "")
+
+    # ---- create_revolute_mate -------------------------------------------
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_assembly_feature_and_check")
+    async def test_create_revolute_mate_success(self, mock_apply):
+        mock_apply.side_effect = [
+            self._mk_result(feature_id="mc1"),
+            self._mk_result(feature_id="mc2"),
+            self._mk_result(feature_id="rmate", feature_name="Revolute mate"),
+        ]
+        result = await call_tool("create_revolute_mate", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "firstInstanceId": "inst1", "secondInstanceId": "inst2",
+            "firstFaceId": "JHW", "secondFaceId": "JKW",
+        })
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is True
+        assert parsed["feature_id"] == "rmate"
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_assembly_feature_and_check")
+    async def test_create_revolute_mate_with_limits(self, mock_apply):
+        """Revolute limits are DEGREES (floats), not mm. The mate payload
+        on the final apply-check call carries the rotation limits."""
+        mock_apply.side_effect = [
+            self._mk_result(feature_id="mc1"),
+            self._mk_result(feature_id="mc2"),
+            self._mk_result(feature_id="rev456"),
+        ]
+        await call_tool("create_revolute_mate", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "firstInstanceId": "inst1", "secondInstanceId": "inst2",
+            "firstFaceId": "JHW", "secondFaceId": "JKW",
+            "minLimit": -45.0, "maxLimit": 90.0,
+        })
+        mate_payload = mock_apply.await_args_list[-1].args[4]
+        params = mate_payload["feature"]["parameters"]
+        param_ids = [p["parameterId"] for p in params]
+        assert "limitsEnabled" in param_ids
+        assert "limitAxialZMin" in param_ids
+        assert "limitAxialZMax" in param_ids
+        min_param = next(p for p in params if p["parameterId"] == "limitAxialZMin")
+        assert "rad" in min_param["expression"]
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_assembly_feature_and_check")
+    async def test_create_revolute_mate_error(self, mock_apply):
+        mock_apply.side_effect = Exception("fail")
+        result = await call_tool("create_revolute_mate", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "firstInstanceId": "a", "secondInstanceId": "b",
+            "firstFaceId": "f1", "secondFaceId": "f2",
+        })
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["status"] == "EXCEPTION"
+
+    # ---- create_slider_mate ---------------------------------------------
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_assembly_feature_and_check")
+    async def test_create_slider_mate_success(self, mock_apply):
+        mock_apply.side_effect = [
+            self._mk_result(feature_id="mc1"),
+            self._mk_result(feature_id="mc2"),
+            self._mk_result(feature_id="slide123", feature_name="Drawer Slide"),
+        ]
+        result = await call_tool("create_slider_mate", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "firstInstanceId": "inst1", "secondInstanceId": "inst2",
+            "firstFaceId": "JHW", "secondFaceId": "JKW",
+            "name": "Drawer Slide",
+        })
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is True
+        assert parsed["feature_id"] == "slide123"
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_assembly_feature_and_check")
+    async def test_create_slider_mate_error(self, mock_apply):
+        mock_apply.side_effect = Exception("fail")
+        result = await call_tool("create_slider_mate", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "firstInstanceId": "a", "secondInstanceId": "b",
+            "firstFaceId": "f1", "secondFaceId": "f2",
+        })
+        import json as _json
+        assert _json.loads(result[0].text)["status"] == "EXCEPTION"
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_assembly_feature_and_check")
+    async def test_create_slider_mate_with_limits(self, mock_apply):
+        """Slider limits are LENGTHS. Bare numbers = mm. -14 → -0.014 m."""
+        mock_apply.side_effect = [
+            self._mk_result(feature_id="mc1"),
+            self._mk_result(feature_id="mc2"),
+            self._mk_result(feature_id="slide456"),
+        ]
+        await call_tool("create_slider_mate", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "firstInstanceId": "inst1", "secondInstanceId": "inst2",
+            "firstFaceId": "JHW", "secondFaceId": "JKW",
+            "minLimit": -14.0, "maxLimit": 0.0,
+        })
+        mate_payload = mock_apply.await_args_list[-1].args[4]
+        params = mate_payload["feature"]["parameters"]
+        param_ids = [p["parameterId"] for p in params]
+        assert "limitsEnabled" in param_ids
+        min_param = next(p for p in params if p["parameterId"] == "limitZMin")
+        assert "-0.014 m" in min_param["expression"]
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_assembly_feature_and_check")
+    async def test_create_slider_mate_feature_data_structure(self, mock_apply):
+        mock_apply.side_effect = [
+            self._mk_result(feature_id="mc1"),
+            self._mk_result(feature_id="mc2"),
+            self._mk_result(feature_id="s789"),
+        ]
+        await call_tool("create_slider_mate", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "firstInstanceId": "a", "secondInstanceId": "b",
+            "firstFaceId": "f1", "secondFaceId": "f2",
+        })
+        mate_payload = mock_apply.await_args_list[-1].args[4]
+        type_param = next(
+            p for p in mate_payload["feature"]["parameters"]
+            if p["parameterId"] == "mateType"
+        )
+        assert type_param["value"] == "SLIDER"
+
+    # ---- create_cylindrical_mate ----------------------------------------
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_assembly_feature_and_check")
+    async def test_create_cylindrical_mate_success(self, mock_apply):
+        mock_apply.side_effect = [
+            self._mk_result(feature_id="mc1"),
+            self._mk_result(feature_id="mc2"),
+            self._mk_result(feature_id="cyl123"),
+        ]
+        result = await call_tool("create_cylindrical_mate", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "firstInstanceId": "inst1", "secondInstanceId": "inst2",
+            "firstFaceId": "JHW", "secondFaceId": "JKW",
+        })
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is True
+        assert parsed["feature_id"] == "cyl123"
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_assembly_feature_and_check")
+    async def test_create_cylindrical_mate_with_limits(self, mock_apply):
+        mock_apply.side_effect = [
+            self._mk_result(feature_id="mc1"),
+            self._mk_result(feature_id="mc2"),
+            self._mk_result(feature_id="cyl456"),
+        ]
+        await call_tool("create_cylindrical_mate", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "firstInstanceId": "inst1", "secondInstanceId": "inst2",
+            "firstFaceId": "JHW", "secondFaceId": "JKW",
+            "minLimit": 0.0, "maxLimit": 12.0,
+        })
+        mate_payload = mock_apply.await_args_list[-1].args[4]
+        params = mate_payload["feature"]["parameters"]
+        max_param = next(p for p in params if p["parameterId"] == "limitZMax")
+        assert "0.012 m" in max_param["expression"]
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_assembly_feature_and_check")
+    async def test_create_cylindrical_mate_error(self, mock_apply):
+        mock_apply.side_effect = Exception("fail")
+        result = await call_tool("create_cylindrical_mate", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "firstInstanceId": "a", "secondInstanceId": "b",
+            "firstFaceId": "f1", "secondFaceId": "f2",
+        })
+        import json as _json
+        assert _json.loads(result[0].text)["status"] == "EXCEPTION"
+
+    # ---- create_mate_connector ------------------------------------------
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_assembly_feature_and_check")
+    async def test_create_mate_connector_success(self, mock_apply):
+        mock_apply.return_value = self._mk_result(
+            feature_id="mc123", feature_name="Slide Connector",
+            feature_type="mateConnector",
+        )
+        result = await call_tool("create_mate_connector", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "instanceId": "inst1", "faceId": "JHW",
+            "name": "Slide Connector",
+        })
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is True
+        assert parsed["feature_id"] == "mc123"
+        assert parsed["feature_name"] == "Slide Connector"
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_assembly_feature_and_check")
+    async def test_create_mate_connector_error(self, mock_apply):
+        mock_apply.side_effect = Exception("fail")
+        result = await call_tool("create_mate_connector", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "instanceId": "i", "faceId": "f1",
+        })
+        import json as _json
+        assert _json.loads(result[0].text)["status"] == "EXCEPTION"
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_assembly_feature_and_check")
+    async def test_create_mate_connector_feature_data_structure(self, mock_apply):
+        mock_apply.return_value = self._mk_result(feature_id="mc789")
+        await call_tool("create_mate_connector", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "instanceId": "inst1", "faceId": "JHW",
+        })
+        payload = mock_apply.await_args.args[4]
+        params = payload["feature"]["parameters"]
+        origin_type = next(p for p in params if p["parameterId"] == "originType")
+        assert origin_type["value"] == "ON_ENTITY"
+        origin_query = next(p for p in params if p["parameterId"] == "originQuery")
+        query = origin_query["queries"][0]
+        assert query["btType"] == "BTMInferenceQueryWithOccurrence-1083"
+        assert query["path"] == ["inst1"]
+        assert query["deterministicIds"] == ["JHW"]
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_assembly_feature_and_check")
+    async def test_create_mate_connector_with_flip_primary(self, mock_apply):
+        mock_apply.return_value = self._mk_result(feature_id="mc_flip")
+        await call_tool("create_mate_connector", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "instanceId": "inst1", "faceId": "JHW",
+            "flipPrimary": True,
+        })
+        payload = mock_apply.await_args.args[4]
+        flip = next(
+            p for p in payload["feature"]["parameters"]
+            if p["parameterId"] == "flipPrimary"
+        )
+        assert flip["value"] is True
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_assembly_feature_and_check")
+    async def test_create_mate_connector_with_offsets(self, mock_apply):
+        """Bare offsets = mm. 3.0 mm → 0.003 m in the MC transform."""
+        mock_apply.return_value = self._mk_result(feature_id="mc_off")
+        await call_tool("create_mate_connector", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "instanceId": "inst1", "faceId": "JHW",
+            "name": "Offset MC",
+            "offsetX": 3.0, "offsetY": -1.5, "offsetZ": 0.25,
+        })
+        payload = mock_apply.await_args.args[4]
+        params = payload["feature"]["parameters"]
+        param_ids = [p["parameterId"] for p in params]
+        assert "transform" in param_ids
+        tx = next(p for p in params if p["parameterId"] == "translationX")
+        assert "0.003 m" in tx["expression"]
+
+
+class TestFeatureTools:
+    """Test feature builder tool handlers."""
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_feature_and_check")
+    @patch("onshape_mcp.server.partstudio_manager")
+    async def test_create_sketch_circle_success(self, mock_ps, mock_apply):
+        mock_ps.get_plane_id = AsyncMock(return_value="plane1")
+        mock_apply.return_value = _mock_apply_result(feature_id="circ123")
+
+        result = await call_tool("create_sketch_circle", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "radius": 2.0,
+        })
+
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is True
+        assert parsed["feature_id"] == "circ123"
+        assert parsed["tool"] == "create_sketch_circle"
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_feature_and_check")
+    @patch("onshape_mcp.server.partstudio_manager")
+    async def test_create_sketch_circle_variable_radius_and_center(
+        self, mock_ps, mock_apply
+    ):
+        """variableRadius/variableCenter reach the builder and become constraints."""
+        mock_ps.get_plane_id = AsyncMock(return_value="plane1")
+        mock_apply.return_value = _mock_apply_result(feature_id="circ_var")
+
+        await call_tool("create_sketch_circle", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "radius": 5,
+            "variableRadius": "holeR",
+            "variableCenter": ["holeX", "holeY"],
+        })
+
+        feature_payload = mock_apply.await_args[0][4]
+        constraints = feature_payload["feature"]["constraints"]
+        kinds = [c.get("constraintType") for c in constraints]
+        assert "RADIUS" in kinds
+        assert kinds.count("DISTANCE") == 2
+        radius_expr = next(
+            p["expression"]
+            for c in constraints if c["constraintType"] == "RADIUS"
+            for p in c["parameters"] if p.get("btType") == "BTMParameterQuantity-147"
+        )
+        assert radius_expr == "#holeR"
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.partstudio_manager")
+    async def test_create_sketch_circle_error(self, mock_ps):
+        mock_ps.get_plane_id = AsyncMock(side_effect=Exception("fail"))
+
+        result = await call_tool("create_sketch_circle", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "radius": 1.0,
+        })
+
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is False and parsed["status"] == "EXCEPTION"
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_feature_and_check")
+    @patch("onshape_mcp.server.partstudio_manager")
+    async def test_create_sketch_line_success(self, mock_ps, mock_apply):
+        mock_ps.get_plane_id = AsyncMock(return_value="plane1")
+        mock_apply.return_value = _mock_apply_result(feature_id="line123")
+
+        result = await call_tool("create_sketch_line", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "startPoint": [0, 0], "endPoint": [10, 10],
+        })
+
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is True
+        assert parsed["feature_id"] == "line123"
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_feature_and_check")
+    @patch("onshape_mcp.server.partstudio_manager")
+    async def test_create_sketch_arc_success(self, mock_ps, mock_apply):
+        mock_ps.get_plane_id = AsyncMock(return_value="plane1")
+        mock_apply.return_value = _mock_apply_result(feature_id="arc123")
+
+        result = await call_tool("create_sketch_arc", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "radius": 1.5, "startAngle": 0, "endAngle": 90,
+        })
+
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is True
+        assert parsed["feature_id"] == "arc123"
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_feature_and_check")
+    @patch("onshape_mcp.server.partstudio_manager")
+    async def test_create_sketch_arc_variable_radius_and_center(
+        self, mock_ps, mock_apply
+    ):
+        """variableRadius/variableCenter plumb through for arcs too."""
+        mock_ps.get_plane_id = AsyncMock(return_value="plane1")
+        mock_apply.return_value = _mock_apply_result(feature_id="arc_var")
+
+        await call_tool("create_sketch_arc", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "radius": 10,
+            "startAngle": 0, "endAngle": 180,
+            "variableRadius": "arcR",
+            "variableCenter": ["ax", "ay"],
+        })
+
+        feature_payload = mock_apply.await_args[0][4]
+        constraints = feature_payload["feature"]["constraints"]
+        radius_expr = next(
+            p["expression"]
+            for c in constraints if c.get("constraintType") == "RADIUS"
+            for p in c["parameters"] if p.get("btType") == "BTMParameterQuantity-147"
+        )
+        assert radius_expr == "#arcR"
+        distance_dirs = sorted(
+            next(
+                p["value"] for p in c["parameters"]
+                if p.get("enumName") == "DimensionDirection"
+            )
+            for c in constraints if c.get("constraintType") == "DISTANCE"
+        )
+        assert distance_dirs == ["HORIZONTAL", "VERTICAL"]
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.partstudio_manager")
+    async def test_create_sketch_arc_error(self, mock_ps):
+        mock_ps.get_plane_id = AsyncMock(side_effect=Exception("fail"))
+
+        result = await call_tool("create_sketch_arc", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "radius": 1.0,
+        })
+
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is False and parsed["status"] == "EXCEPTION"
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_feature_and_check")
+    async def test_create_fillet_success(self, mock_apply):
+        mock_apply.return_value = _mock_apply_result(
+            feature_id="fillet123", feature_type="fillet"
+        )
+        result = await call_tool("create_fillet", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "radius": 0.25, "edgeIds": ["edge1", "edge2"],
+        })
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is True and parsed["feature_id"] == "fillet123"
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_feature_and_check")
+    async def test_create_fillet_reports_error(self, mock_apply):
+        """Filleting a non-edge id: Onshape returns ERROR — must not be silenced."""
+        mock_apply.return_value = _mock_apply_result(
+            ok=False, status="ERROR", feature_id="filFail",
+            feature_type="fillet",
+            error_message="Entity is not an edge",
+        )
+        result = await call_tool("create_fillet", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "radius": 0.1, "edgeIds": ["bad_id"],
+        })
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is False
+        assert parsed["status"] == "ERROR"
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_feature_and_check")
+    async def test_create_fillet_error(self, mock_apply):
+        mock_apply.side_effect = Exception("fail")
+        result = await call_tool("create_fillet", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "radius": 0.1, "edgeIds": ["e1"],
+        })
+        import json as _json
+        assert _json.loads(result[0].text)["status"] == "EXCEPTION"
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_feature_and_check")
+    async def test_create_chamfer_success(self, mock_apply):
+        mock_apply.return_value = _mock_apply_result(
+            feature_id="chamfer123", feature_type="chamfer"
+        )
+        result = await call_tool("create_chamfer", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "distance": 0.1, "edgeIds": ["edge1"],
+        })
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is True
+        assert parsed["feature_type"] == "chamfer"
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_feature_and_check")
+    async def test_create_revolve_success(self, mock_apply):
+        mock_apply.return_value = _mock_apply_result(
+            feature_id="rev123", feature_type="revolve"
+        )
+        result = await call_tool("create_revolve", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "sketchFeatureId": "sketch1", "axis": "Y", "angle": 360,
+        })
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is True and parsed["feature_id"] == "rev123"
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_feature_and_check")
+    async def test_create_revolve_error(self, mock_apply):
+        mock_apply.side_effect = Exception("fail")
+        result = await call_tool("create_revolve", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "sketchFeatureId": "s1",
+        })
+        import json as _json
+        assert _json.loads(result[0].text)["status"] == "EXCEPTION"
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_feature_and_check")
+    async def test_create_linear_pattern_success(self, mock_apply):
+        mock_apply.return_value = _mock_apply_result(
+            feature_id="lp123", feature_type="linearPattern"
+        )
+        result = await call_tool("create_linear_pattern", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "distance": 2.0, "count": 5, "featureIds": ["f1"],
+            "directionEdgeId": "EDGE1",
+        })
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is True and parsed["feature_id"] == "lp123"
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_feature_and_check")
+    async def test_create_circular_pattern_success(self, mock_apply):
+        mock_apply.return_value = _mock_apply_result(
+            feature_id="cp123", feature_type="circularPattern"
+        )
+        result = await call_tool("create_circular_pattern", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "count": 6, "featureIds": ["f1"],
+        })
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is True and parsed["feature_id"] == "cp123"
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_feature_and_check")
+    async def test_create_boolean_success(self, mock_apply):
+        mock_apply.return_value = _mock_apply_result(
+            feature_id="bool123", feature_type="boolean"
+        )
+        result = await call_tool("create_boolean", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "booleanType": "UNION", "toolBodyIds": ["b1", "b2"],
+        })
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is True and parsed["feature_id"] == "bool123"
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.apply_feature_and_check")
+    async def test_create_boolean_error(self, mock_apply):
+        mock_apply.side_effect = Exception("fail")
+        result = await call_tool("create_boolean", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "booleanType": "SUBTRACT", "toolBodyIds": ["b1"],
+            "targetBodyIds": ["t1"],
+        })
+        import json as _json
+        assert _json.loads(result[0].text)["status"] == "EXCEPTION"
+
+
+class TestDeleteFeature:
+    """Test the delete_feature handler (structured-JSON return)."""
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.partstudio_manager")
+    async def test_delete_feature_partstudio_success(self, mock_ps):
+        mock_ps.delete_feature = AsyncMock(return_value={})
+        result = await call_tool("delete_feature", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "featureId": "toDelete",
+        })
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is True
+        assert parsed["status"] == "OK"
+        assert parsed["feature_id"] == "toDelete"
+        assert parsed["feature_type"] == "partstudio"
+        assert parsed["tool"] == "delete_feature"
+        mock_ps.delete_feature.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.assembly_manager")
+    async def test_delete_feature_assembly_success(self, mock_asm):
+        mock_asm.delete_feature = AsyncMock(return_value={})
+        result = await call_tool("delete_feature", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "featureId": "mateId", "elementType": "ASSEMBLY",
+        })
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is True
+        assert parsed["feature_type"] == "assembly"
+        mock_asm.delete_feature.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.partstudio_manager")
+    async def test_delete_feature_http_error(self, mock_ps):
+        mock_response = Mock()
+        mock_response.status_code = 404
+        mock_response.text = "Feature not found"
+        mock_ps.delete_feature = AsyncMock(
+            side_effect=httpx.HTTPStatusError("Not Found", request=Mock(), response=mock_response)
+        )
+        result = await call_tool("delete_feature", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "featureId": "bogus",
+        })
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is False
+        assert parsed["status"] == "EXCEPTION"
+        assert "404" in (parsed["error_message"] or "")
+
+
+class TestDeleteFeatureByName:
+    """Test delete_feature_by_name — lookup-by-name then delete."""
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.partstudio_manager")
+    async def test_delete_by_name_success(self, mock_ps):
+        mock_ps.get_features = AsyncMock(return_value={
+            "features": [
+                {"featureId": "a", "name": "Sketch 1", "featureType": "newSketch"},
+                {"featureId": "b", "name": "Extrude 10mm", "featureType": "extrude"},
+            ],
+        })
+        mock_ps.delete_feature = AsyncMock(return_value={})
+
+        result = await call_tool("delete_feature_by_name", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "name": "Extrude 10mm",
+        })
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is True
+        assert parsed["feature_id"] == "b"
+        assert parsed["feature_name"] == "Extrude 10mm"
+        assert parsed["feature_type"] == "extrude"
+        mock_ps.delete_feature.assert_awaited_once()
+        # Deleted the right id, not a lookalike.
+        call = mock_ps.delete_feature.await_args
+        assert call[0][3] == "b"
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.partstudio_manager")
+    async def test_delete_by_name_not_found(self, mock_ps):
+        """Unknown name surfaces available names in error_message."""
+        mock_ps.get_features = AsyncMock(return_value={
+            "features": [{"featureId": "a", "name": "Sketch 1"}],
+        })
+        mock_ps.delete_feature = AsyncMock()
+
+        result = await call_tool("delete_feature_by_name", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "name": "Nonexistent",
+        })
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is False
+        assert parsed["status"] == "EXCEPTION"
+        assert "Sketch 1" in (parsed["error_message"] or "")
+        mock_ps.delete_feature.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.partstudio_manager")
+    async def test_delete_by_name_ambiguous(self, mock_ps):
+        """Multiple matches short-circuit with the list of ids so caller can pick."""
+        mock_ps.get_features = AsyncMock(return_value={
+            "features": [
+                {"featureId": "a", "name": "Fillet"},
+                {"featureId": "b", "name": "Fillet"},
+            ],
+        })
+        mock_ps.delete_feature = AsyncMock()
+
+        result = await call_tool("delete_feature_by_name", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "name": "Fillet",
+        })
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is False
+        assert parsed["status"] == "EXCEPTION"
+        assert "a" in (parsed["error_message"] or "") and "b" in (parsed["error_message"] or "")
+        mock_ps.delete_feature.assert_not_called()
+
+
+class TestUpdateFeature:
+    """Test update_feature — patch params on an existing feature."""
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.update_feature_params_and_check")
+    async def test_update_feature_success(self, mock_update):
+        """Handler passes the patch list through and returns structured JSON."""
+        mock_update.return_value = _mock_apply_result(
+            feature_id="fId", feature_name="Extrude 10mm", feature_type="extrude",
+        )
+
+        result = await call_tool("update_feature", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "featureId": "fId",
+            "updates": [{"parameterId": "depth", "expression": "15 mm"}],
+        })
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is True
+        assert parsed["feature_id"] == "fId"
+
+        pos = mock_update.await_args[0]
+        assert pos[4] == "fId"  # feature_id
+        assert pos[5] == [{"parameterId": "depth", "expression": "15 mm"}]
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.update_feature_params_and_check")
+    async def test_update_feature_onshape_error(self, mock_update):
+        """Post-patch featureStatus=ERROR must bubble up as ok=false."""
+        mock_update.return_value = _mock_apply_result(
+            ok=False, status="ERROR", feature_id="fId",
+            error_message="Depth cannot be negative",
+        )
+        result = await call_tool("update_feature", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "featureId": "fId",
+            "updates": [{"parameterId": "depth", "expression": "-15 mm"}],
+        })
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is False
+        assert parsed["status"] == "ERROR"
+        assert "negative" in (parsed["error_message"] or "")
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.update_feature_params_and_check")
+    async def test_update_feature_value_error(self, mock_update):
+        """feature_id not on element surfaces as EXCEPTION with clear message."""
+        mock_update.side_effect = ValueError("feature_id 'bogus' not found")
+        result = await call_tool("update_feature", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "featureId": "bogus",
+            "updates": [{"parameterId": "depth", "expression": "15 mm"}],
+        })
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is False
+        assert parsed["status"] == "EXCEPTION"
+        assert "not found" in (parsed["error_message"] or "")
+
+
+class TestDeleteDocument:
+    """Test delete_document — REST DELETE wrapper."""
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.document_manager")
+    async def test_delete_document_success(self, mock_docs):
+        mock_docs.delete_document = AsyncMock(return_value={})
+
+        result = await call_tool("delete_document", {"documentId": "doc_xyz"})
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is True
+        assert parsed["document_id"] == "doc_xyz"
+        mock_docs.delete_document.assert_awaited_once_with("doc_xyz")
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.document_manager")
+    async def test_delete_document_http_error(self, mock_docs):
+        mock_response = Mock()
+        mock_response.status_code = 403
+        mock_response.text = "Forbidden"
+        mock_docs.delete_document = AsyncMock(
+            side_effect=httpx.HTTPStatusError("Forbidden", request=Mock(), response=mock_response)
+        )
+        result = await call_tool("delete_document", {"documentId": "bogus"})
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is False
+        assert parsed["status"] == "EXCEPTION"
+        assert "403" in (parsed["error_message"] or "")
+
+
+class TestFeatureScriptTools:
+    """Test FeatureScript tool handlers."""
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.featurescript_manager")
+    async def test_eval_featurescript_success(self, mock_fs):
+        """Test evaluating FeatureScript."""
+        mock_fs.evaluate = AsyncMock(return_value={"result": {"value": 42}})
+
+        arguments = {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "script": "function(context, queries) { return 42; }",
+        }
+
+        result = await call_tool("eval_featurescript", arguments)
+
+        assert "42" in result[0].text
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.featurescript_manager")
+    async def test_eval_featurescript_error(self, mock_fs):
+        """Test FeatureScript evaluation error."""
+        mock_fs.evaluate = AsyncMock(side_effect=Exception("parse error"))
+
+        result = await call_tool("eval_featurescript", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "script": "bad",
+        })
+
+        assert "Error" in result[0].text
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.featurescript_manager")
+    async def test_get_bounding_box_success(self, mock_fs):
+        """Test getting bounding box."""
+        mock_fs.get_bounding_box = AsyncMock(
+            return_value={"result": {"minCorner": [0, 0, 0], "maxCorner": [1, 1, 1]}}
+        )
+
+        arguments = {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+        }
+
+        result = await call_tool("get_bounding_box", arguments)
+
+        assert "bounding box" in result[0].text.lower() or "Bounding" in result[0].text
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.featurescript_manager")
+    async def test_get_bounding_box_error(self, mock_fs):
+        """Test bounding box error."""
+        mock_fs.get_bounding_box = AsyncMock(side_effect=Exception("fail"))
+
+        result = await call_tool("get_bounding_box", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+        })
+
+        assert "Error" in result[0].text
+
+
+class TestExportTools:
+    """Test export tool handlers.
+
+    Handlers now block on the full translation lifecycle (start, poll, download)
+    and write bytes to disk before returning.
+    """
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.export_manager")
+    async def test_export_part_studio_success(self, mock_export, tmp_path, monkeypatch):
+        """Success path writes bytes to EXPORT_DIR and surfaces the path."""
+        from onshape_mcp.api.export import TranslationResult
+
+        mock_export.export_part_studio_and_download = AsyncMock(
+            return_value=TranslationResult(
+                ok=True,
+                state="DONE",
+                translation_id="trans123",
+                format_name="STEP",
+                data=b"ISO-10303-21;\nHEADER;\nENDSEC;",
+                filename="trans123.step",
+            )
+        )
+        monkeypatch.setattr("onshape_mcp.server.EXPORT_DIR", str(tmp_path))
+
+        arguments = {
+            "documentId": "d", "workspaceId": "w", "elementId": "elem789",
+            "format": "STEP",
+        }
+
+        result = await call_tool("export_part_studio", arguments)
+        text = result[0].text
+
+        assert "Export DONE" in text
+        assert "trans123" in text
+        assert "STEP" in text
+        assert str(tmp_path) in text
+
+        import os
+        written = os.listdir(tmp_path)
+        assert written, "No file written to EXPORT_DIR"
+        with open(os.path.join(tmp_path, written[0]), "rb") as f:
+            assert f.read().startswith(b"ISO-10303-21")
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.export_manager")
+    async def test_export_part_studio_failed_state(self, mock_export):
+        """FAILED translation should produce a readable error, not a silent 'ACTIVE'."""
+        from onshape_mcp.api.export import TranslationResult
+
+        mock_export.export_part_studio_and_download = AsyncMock(
+            return_value=TranslationResult(
+                ok=False,
+                state="FAILED",
+                translation_id="trans_err",
+                format_name="STEP",
+                error_message="Tessellation failed on degenerate face",
+            )
+        )
+
+        result = await call_tool("export_part_studio", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "format": "STEP",
+        })
+
+        text = result[0].text
+        assert "FAILED" in text
+        assert "Tessellation failed" in text
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.export_manager")
+    async def test_export_part_studio_error(self, mock_export):
+        """Unexpected exceptions become a text 'Error …' response."""
+        mock_export.export_part_studio_and_download = AsyncMock(
+            side_effect=Exception("fail")
+        )
+
+        result = await call_tool("export_part_studio", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+        })
+
+        assert "Error" in result[0].text
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.export_manager")
+    async def test_export_assembly_success(self, mock_export, tmp_path, monkeypatch):
+        """Assembly export handler also writes bytes and returns path."""
+        from onshape_mcp.api.export import TranslationResult
+
+        mock_export.export_assembly_and_download = AsyncMock(
+            return_value=TranslationResult(
+                ok=True,
+                state="DONE",
+                translation_id="trans456",
+                format_name="STL",
+                data=b"solid asm\nendsolid asm\n",
+                filename="trans456.stl",
+            )
+        )
+        monkeypatch.setattr("onshape_mcp.server.EXPORT_DIR", str(tmp_path))
+
+        arguments = {
+            "documentId": "d", "workspaceId": "w", "elementId": "asmId",
+            "format": "STL",
+        }
+
+        result = await call_tool("export_assembly", arguments)
+        text = result[0].text
+
+        assert "Export DONE" in text
+        assert "trans456" in text
+        assert "STL" in text
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.export_manager")
+    async def test_export_assembly_error(self, mock_export):
+        """Assembly export handler wraps unexpected exceptions."""
+        mock_export.export_assembly_and_download = AsyncMock(
+            side_effect=Exception("fail")
+        )
+
+        result = await call_tool("export_assembly", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+        })
+
+        assert "Error" in result[0].text
+
+
+class TestListToolsPositioning:
+    """Test that positioning tools are registered."""
+
+    @pytest.mark.asyncio
+    async def test_includes_get_assembly_positions(self):
+        tools = await list_tools()
+        tool_names = [tool.name for tool in tools]
+        assert "get_assembly_positions" in tool_names
+
+    @pytest.mark.asyncio
+    async def test_includes_set_instance_position(self):
+        tools = await list_tools()
+        tool_names = [tool.name for tool in tools]
+        assert "set_instance_position" in tool_names
+
+    @pytest.mark.asyncio
+    async def test_includes_align_instance_to_face(self):
+        tools = await list_tools()
+        tool_names = [tool.name for tool in tools]
+        assert "align_instance_to_face" in tool_names
+
+
+class TestGetAssemblyPositionsTool:
+    """Test get_assembly_positions tool handler."""
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.get_assembly_positions")
+    async def test_success(self, mock_fn):
+        mock_fn.return_value = "Assembly Instance Positions\nFound 2 instance(s)"
+        result = await call_tool("get_assembly_positions", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+        })
+        assert isinstance(result, list)
+        assert isinstance(result[0], TextContent)
+        assert "Positions" in result[0].text
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.get_assembly_positions")
+    async def test_error(self, mock_fn):
+        mock_fn.side_effect = Exception("API failure")
+        result = await call_tool("get_assembly_positions", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+        })
+        assert "Error" in result[0].text
+
+
+class TestSetInstancePositionTool:
+    """Test set_instance_position tool handler (structured-JSON, mm-default)."""
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.set_absolute_position")
+    async def test_success(self, mock_fn):
+        mock_fn.return_value = (
+            "Set instance inst1 to absolute position: X=10.00 mm, Y=-5.00 mm, Z=0.00 mm",
+            (10.0, -5.0, 0.0),
+        )
+        result = await call_tool("set_instance_position", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "instanceId": "inst1", "x": 10.0, "y": -5.0, "z": 0.0,
+        })
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is True
+        assert parsed["status"] == "OK"
+        assert parsed["instance_id"] == "inst1"
+        assert parsed["position_mm"] == {"x": 10.0, "y": -5.0, "z": 0.0}
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.set_absolute_position")
+    async def test_error(self, mock_fn):
+        mock_fn.side_effect = Exception("fail")
+        result = await call_tool("set_instance_position", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "instanceId": "i", "x": 0, "y": 0, "z": 0,
+        })
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is False
+        assert parsed["status"] == "EXCEPTION"
+
+
+class TestAlignInstanceToFaceTool:
+    """Test align_instance_to_face tool handler (structured-JSON)."""
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.align_to_face")
+    async def test_success(self, mock_fn):
+        mock_fn.return_value = "Aligned 'Door' to 'front' face of 'Cabinet'."
+        result = await call_tool("align_instance_to_face", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "sourceInstanceId": "s1", "targetInstanceId": "t1", "face": "front",
+        })
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is True
+        assert parsed["status"] == "OK"
+        assert parsed["source_instance_id"] == "s1"
+        assert parsed["face"] == "front"
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.align_to_face")
+    async def test_invalid_face(self, mock_fn):
+        mock_fn.side_effect = ValueError("Invalid face 'middle'")
+        result = await call_tool("align_instance_to_face", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "sourceInstanceId": "s1", "targetInstanceId": "t1", "face": "middle",
+        })
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is False
+        assert parsed["status"] == "EXCEPTION"
+        assert "Invalid" in (parsed["error_message"] or "")
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.align_to_face")
+    async def test_error(self, mock_fn):
+        mock_fn.side_effect = Exception("API fail")
+        result = await call_tool("align_instance_to_face", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+            "sourceInstanceId": "s1", "targetInstanceId": "t1", "face": "front",
+        })
+        import json as _json
+        parsed = _json.loads(result[0].text)
+        assert parsed["ok"] is False
+        assert parsed["status"] == "EXCEPTION"
+
+
+class TestGetBodyDetails:
+    """Test get_body_details tool handler."""
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.partstudio_manager")
+    async def test_success(self, mock_ps):
+        mock_ps.get_body_details = AsyncMock(return_value={
+            "bodies": [{
+                "id": "JHD",
+                "type": "solid",
+                "faces": [
+                    {
+                        "id": "JHW",
+                        "surface": {
+                            "type": "plane",
+                            "normal": {"x": 1.0, "y": 0.0, "z": 0.0},
+                            "origin": {"x": 0.01, "y": 0.0, "z": 0.0},
+                        },
+                    },
+                    {
+                        "id": "JHC",
+                        "surface": {
+                            "type": "plane",
+                            "normal": {"x": 0.0, "y": 0.0, "z": 1.0},
+                            "origin": {"x": 0.0, "y": 0.0, "z": 0.005},
+                        },
+                    },
+                    {
+                        "id": "CYL1",
+                        "surface": {"type": "cylinder", "radius": 0.005},
+                    },
+                ],
+            }],
+        })
+        result = await call_tool("get_body_details", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+        })
+        assert "JHD" in result[0].text
+        assert "JHW" in result[0].text
+        assert "plane" in result[0].text
+        assert "normal=" in result[0].text
+        assert "cylinder" in result[0].text
+        assert "radius=" in result[0].text
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.partstudio_manager")
+    async def test_uppercase_surface_types(self, mock_ps):
+        """Test that uppercase surface types from the API are handled correctly."""
+        mock_ps.get_body_details = AsyncMock(return_value={
+            "bodies": [{
+                "id": "JHD",
+                "type": "SOLID",
+                "faces": [
+                    {
+                        "id": "JHW",
+                        "surface": {
+                            "type": "PLANE",
+                            "normal": {"x": 1.0, "y": 0.0, "z": 0.0},
+                            "origin": {"x": 0.01, "y": 0.0, "z": 0.0},
+                        },
+                    },
+                    {
+                        "id": "CYL1",
+                        "surface": {"type": "CYLINDER", "radius": 0.005},
+                    },
+                ],
+            }],
+        })
+        result = await call_tool("get_body_details", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+        })
+        assert "normal=" in result[0].text
+        assert "radius=" in result[0].text
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.partstudio_manager")
+    async def test_no_bodies(self, mock_ps):
+        mock_ps.get_body_details = AsyncMock(return_value={"bodies": []})
+        result = await call_tool("get_body_details", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+        })
+        assert "No bodies" in result[0].text
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.partstudio_manager")
+    async def test_error(self, mock_ps):
+        mock_ps.get_body_details = AsyncMock(side_effect=Exception("fail"))
+        result = await call_tool("get_body_details", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+        })
+        assert "Error" in result[0].text
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.partstudio_manager")
+    async def test_http_error(self, mock_ps):
+        resp = Mock()
+        resp.status_code = 404
+        mock_ps.get_body_details = AsyncMock(
+            side_effect=httpx.HTTPStatusError("Not found", request=Mock(), response=resp)
+        )
+        result = await call_tool("get_body_details", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+        })
+        assert "404" in result[0].text
+
+
+class TestGetAssemblyFeatures:
+    """Test get_assembly_features tool handler."""
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.assembly_manager")
+    async def test_success(self, mock_asm):
+        mock_asm.get_features = AsyncMock(return_value={
+            "features": [
+                {
+                    "btType": "BTMMateConnector-66",
+                    "typeName": "mateConnector",
+                    "featureId": "mc1",
+                    "name": "MC 1",
+                    "parameters": [],
+                },
+                {
+                    "btType": "BTMMate-64",
+                    "typeName": "mate",
+                    "featureId": "mate1",
+                    "name": "Fastened Mate",
+                    "parameters": [
+                        {"parameterId": "mateType", "value": "FASTENED"},
+                    ],
+                },
+            ],
+            "featureStates": {
+                "mc1": {"featureStatus": "OK"},
+                "mate1": {"featureStatus": "OK"},
+            },
+        })
+        result = await call_tool("get_assembly_features", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+        })
+        text = result[0].text
+        assert "MC 1" in text
+        assert "Fastened Mate" in text
+        assert "FASTENED" in text
+        assert "OK" in text
+        assert "mc1" in text
+        assert "mate1" in text
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.assembly_manager")
+    async def test_no_features(self, mock_asm):
+        mock_asm.get_features = AsyncMock(return_value={"features": [], "featureStates": {}})
+        result = await call_tool("get_assembly_features", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+        })
+        assert "No features" in result[0].text
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.assembly_manager")
+    async def test_error(self, mock_asm):
+        mock_asm.get_features = AsyncMock(side_effect=Exception("fail"))
+        result = await call_tool("get_assembly_features", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+        })
+        assert "Error" in result[0].text
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.assembly_manager")
+    async def test_http_error(self, mock_asm):
+        resp = Mock()
+        resp.status_code = 403
+        mock_asm.get_features = AsyncMock(
+            side_effect=httpx.HTTPStatusError("Forbidden", request=Mock(), response=resp)
+        )
+        result = await call_tool("get_assembly_features", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+        })
+        assert "403" in result[0].text
+
+
+class TestGetAssemblyElementId:
+    """Test that get_assembly returns elementId for instances."""
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.assembly_manager")
+    async def test_element_id_shown(self, mock_asm):
+        mock_asm.get_assembly_definition = AsyncMock(return_value={
+            "rootAssembly": {
+                "instances": [
+                    {"id": "inst1", "name": "Part 1", "elementId": "elem_abc"},
+                ],
+            }
+        })
+        result = await call_tool("get_assembly", {
+            "documentId": "d", "workspaceId": "w", "elementId": "e",
+        })
+        assert "elem_abc" in result[0].text
+        assert "Element ID" in result[0].text
+
+
+class TestGetFaceCoordinateSystem:
+    """Test get_face_coordinate_system tool handler."""
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.assembly_manager")
+    async def test_success(self, mock_asm):
+        from onshape_mcp.analysis.face_cs import FaceCoordinateSystem
+
+        with patch(
+            "onshape_mcp.analysis.face_cs.query_face_coordinate_system",
+            new_callable=AsyncMock,
+            return_value=FaceCoordinateSystem(
+                origin_meters=(0.0254, 0.0508, 0.0762),
+                origin_inches=(1.0, 2.0, 3.0),
+                x_axis=(1.0, 0.0, 0.0),
+                y_axis=(0.0, 1.0, 0.0),
+                z_axis=(0.0, 0.0, 1.0),
+            ),
+        ) as mock_query:
+            result = await call_tool("get_face_coordinate_system", {
+                "documentId": "d", "workspaceId": "w", "elementId": "e",
+                "instanceId": "inst1", "faceId": "JHG",
+            })
+            text = result[0].text
+            assert "JHG" in text
+            assert "inst1" in text
+            assert "1.0000" in text  # origin X
+            assert "outward normal" in text
+            mock_query.assert_called_once()
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.assembly_manager")
+    async def test_runtime_error(self, mock_asm):
+        with patch(
+            "onshape_mcp.analysis.face_cs.query_face_coordinate_system",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("Could not find resolved coordinate system"),
+        ):
+            result = await call_tool("get_face_coordinate_system", {
+                "documentId": "d", "workspaceId": "w", "elementId": "e",
+                "instanceId": "inst1", "faceId": "JHG",
+            })
+            assert "Error" in result[0].text
+            assert "Could not find resolved coordinate system" in result[0].text
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.assembly_manager")
+    async def test_http_error(self, mock_asm):
+        resp = Mock()
+        resp.status_code = 500
+        with patch(
+            "onshape_mcp.analysis.face_cs.query_face_coordinate_system",
+            new_callable=AsyncMock,
+            side_effect=httpx.HTTPStatusError("Server error", request=Mock(), response=resp),
+        ):
+            result = await call_tool("get_face_coordinate_system", {
+                "documentId": "d", "workspaceId": "w", "elementId": "e",
+                "instanceId": "inst1", "faceId": "JHG",
+            })
+            assert "500" in result[0].text
+
+    @pytest.mark.asyncio
+    @patch("onshape_mcp.server.assembly_manager")
+    async def test_generic_error(self, mock_asm):
+        with patch(
+            "onshape_mcp.analysis.face_cs.query_face_coordinate_system",
+            new_callable=AsyncMock,
+            side_effect=Exception("unexpected failure"),
+        ):
+            result = await call_tool("get_face_coordinate_system", {
+                "documentId": "d", "workspaceId": "w", "elementId": "e",
+                "instanceId": "inst1", "faceId": "JHG",
+            })
+            assert "Error" in result[0].text
+            assert "unexpected failure" in result[0].text
+
+
+class TestUnknownTool:
+    """Test handling of unknown tools."""
+
+    @pytest.mark.asyncio
+    async def test_unknown_tool_name(self):
+        """Test calling an unknown tool."""
+        with pytest.raises(ValueError, match="Unknown tool"):
+            await call_tool("unknown_tool", {})

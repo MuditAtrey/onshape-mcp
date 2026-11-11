@@ -1,0 +1,51 @@
+{
+  "name": "onshape-mcp",
+  "version": "1.2.0",
+  "description": "Onshape MCP — let Claude and AI coding agents drive real Onshape CAD. Sketches, extrudes, fillets, mates, parametric iteration, FeatureScript custom features. Includes vision-decomposition skill and truth-telling on every mutation.",
+  "author": {
+    "name": "Mudit Atrey",
+    "url": "https://github.com/MuditAtrey"
+  },
+  "repository": "https://github.com/MuditAtrey/onshape-mcp",
+  "license": "MIT",
+  "keywords": [
+    "onshape",
+    "cad",
+    "mcp",
+    "claude",
+    "featurescript",
+    "parametric",
+    "3d",
+    "stl",
+    "step"
+  ],
+  "userConfig": {
+    "ONSHAPE_API_KEY": {
+      "type": "string",
+      "title": "Onshape API Key",
+      "description": "Onshape API access key. Get one at https://dev-portal.onshape.com/ (the 'Access Key' value when you create an API key pair).",
+      "sensitive": true
+    },
+    "ONSHAPE_API_SECRET": {
+      "type": "string",
+      "title": "Onshape API Secret",
+      "description": "Onshape API secret key (the 'Secret Key' shown once when you create the API key pair).",
+      "sensitive": true
+    }
+  },
+  "mcpServers": {
+    "onshape": {
+      "command": "uv",
+      "args": [
+        "--directory",
+        "${CLAUDE_PLUGIN_ROOT}",
+        "run",
+        "onshape-mcp"
+      ],
+      "env": {
+        "ONSHAPE_API_KEY": "${user_config.ONSHAPE_API_KEY}",
+        "ONSHAPE_API_SECRET": "${user_config.ONSHAPE_API_SECRET}"
+      }
+    }
+  }
+}
