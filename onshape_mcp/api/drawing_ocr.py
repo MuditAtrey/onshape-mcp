@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, asdict
-from typing import List, Optional
+from typing import List
 
 from PIL import Image
 

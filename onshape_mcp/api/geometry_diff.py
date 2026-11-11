@@ -156,7 +156,9 @@ def _body_bbox(bodies: List[Dict[str, Any]]) -> Optional[Dict[str, float]]:
         for v in body.get("vertices") or []:
             p = _vec(v.get("point"))
             if p:
-                xs.append(p[0]); ys.append(p[1]); zs.append(p[2])
+                xs.append(p[0])
+                ys.append(p[1])
+                zs.append(p[2])
         # Fallback: if a body has no vertices (degenerate / all-curves),
         # use edge endpoints so we at least have something.
         if not body.get("vertices"):
@@ -165,7 +167,9 @@ def _body_bbox(bodies: List[Dict[str, Any]]) -> Optional[Dict[str, float]]:
                 for k in ("startPoint", "endPoint"):
                     p = _vec(geom.get(k))
                     if p:
-                        xs.append(p[0]); ys.append(p[1]); zs.append(p[2])
+                        xs.append(p[0])
+                        ys.append(p[1])
+                        zs.append(p[2])
     if not xs:
         return None
     return {

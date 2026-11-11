@@ -30,7 +30,6 @@ from .entities import (
     _classify_edge,
     _classify_face,
     _classify_vertex,
-    _nearest_axis_label,
     _norm,
     _sub,
     _vec,

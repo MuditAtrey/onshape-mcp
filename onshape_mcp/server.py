@@ -39,14 +39,13 @@ from .api.feature_apply import (
 from .api.entities import EntityManager
 from .api.describe import DescribeManager
 from .api.measurements import MeasurementManager
-from .api.custom_features import CustomFeatureManager, DEFAULT_FS_VERSION
+from .api.custom_features import CustomFeatureManager
 from .api.drawing_ocr import callouts_to_dict, extract_callouts
 from .api.rendering import (
     ShadedViewManager,
     compose_reference_comparison,
     crop_cached_image,
     get_image,
-    get_image_meta,
     list_cached_image_ids,
     load_local_image,
     _put_image,
@@ -3622,7 +3621,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent | ImageConten
                     "create_document: post-create workspace/elementId resolution failed"
                 )
 
-            payload: Dict[str, Any] = {
+            payload: dict[str, Any] = {
                 "ok": True,
                 "document_id": doc.id,
                 "document_name": doc.name,
