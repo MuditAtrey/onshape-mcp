@@ -104,8 +104,10 @@ def _compute_transform(
     dx = max(x_max - x_min, 1e-6)
     dy = max(y_max - y_min, 1e-6)
     margin = 0.08 * max(dx, dy)
-    x_min -= margin; x_max += margin
-    y_min -= margin; y_max += margin
+    x_min -= margin
+    x_max += margin
+    y_min -= margin
+    y_max += margin
     dx, dy = x_max - x_min, y_max - y_min
 
     scale = min(

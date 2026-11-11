@@ -1,5 +1,5 @@
-claude-onshape-mcp
-==================
+onshape-mcp
+===========
 
 This project was started as a fork of https://github.com/hedless/onshape-mcp
 at commit 54d21cc (2026), authored by hedless. The upstream README declares
@@ -17,6 +17,7 @@ orchestration, per-feature geometric diffs, the `hints:` rotation,
 iterative agent harness via Claude Agent SDK, etc. — was built on top
 of that scaffolding between April 16-17, 2026.
 
-See `git log` for the full attribution trail. The first commit
-(`vendor: initial import ...`) squashes the upstream history; every
-subsequent commit is from this fork.
+The public history of this repository was squashed into a single
+release commit, so the split between upstream and fork work is
+described in this file rather than in `git log`. The upstream project's
+own history is available at https://github.com/hedless/onshape-mcp.

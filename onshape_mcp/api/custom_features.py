@@ -285,7 +285,7 @@ class CustomFeatureManager:
         if not source_microversion:
             raise RuntimeError(
                 f"Could not extract sourceMicroversionId from featurespecs. "
-                f"Spec entry keys: {list(msg.keys())}; upload_resp keys: "
+                f"Spec entry keys: {list(target_spec.keys())}; upload_resp keys: "
                 f"{list(upload_resp.keys())}"
             )
 
