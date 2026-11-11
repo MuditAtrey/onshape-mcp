@@ -3,7 +3,7 @@ name = "onshape-mcp"
 version = "1.2.0"
 description = "Model Context Protocol (MCP) server for inspecting, generating, and editing parametric 3D CAD models in Onshape."
 authors = [
-    {name = "Mudit Atrey", email = "muditatrey007@gmail.com"}
+    {name = "Mudit Atrey", email = "muditatrey.work@gmail.com"}
 ]
 readme = "README.md"
 license = {text = "MIT"}
