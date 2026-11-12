@@ -33,19 +33,19 @@ The server is built to drive real-world, high-fidelity mechanical and aerospace 
 </p>
 
 <p align="center">
-  <img src="docs/images/fuze_cad_assembly_iso.png" width="48%" alt="Precision Fuze Guidance Kit Assembly" />
+  <img src="docs/images/fuze_hero_round.png" width="48%" alt="155mm Artillery Round with Precision Guidance Kit" />
   <img src="docs/images/onshape_pl40_catapult_iso.png" width="48%" alt="Pneumatic Launch Rail Assembly" />
 </p>
 <p align="center">
-  <em>Left: 155mm artillery precision guidance kit (PGK) assembly with despun collar and canard linkages.<br/>Right: Pneumatic catapult launcher assembly with slider and revolute mates.</em>
+  <em>Left: 155mm artillery precision guidance kit (PGK) assembly with despun collar and titanium canards.<br/>Right: Pneumatic catapult launcher assembly with slider and revolute mates.</em>
 </p>
 
 <p align="center">
-  <img src="docs/images/fuze_cad_exploded.png" width="48%" alt="Exploded Subassembly Layout" />
+  <img src="docs/images/fuze_avionics_cutaway.png" width="48%" alt="Internal Avionics & Mechanical Cutaway" />
   <img src="docs/images/onshape_drone_top.png" width="48%" alt="Onshape Planform Top View" />
 </p>
 <p align="center">
-  <em>Left: Exploded subassembly layout of bearing, collar, and steering mechanism.<br/>Right: Top-down planform aerodynamic geometry and chord distribution.</em>
+  <em>Left: Internal avionics, slip ring, and mechanical steering head cutaway.<br/>Right: Top-down planform aerodynamic geometry and chord distribution.</em>
 </p>
 
 ## Quick start
