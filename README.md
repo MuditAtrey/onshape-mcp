@@ -20,6 +20,34 @@ Every tool that changes the model returns a structured report of what actually c
 | Vision | render Part Studios, assemblies and sketches from several views; crop and load images; extract dimensions from drawings; compare a build against a reference |
 | Export | Part Studio and assembly export (e.g. STEP, STL) |
 
+## Showcase: Engineering Parts & Assemblies
+
+The server is built to drive real-world, high-fidelity mechanical and aerospace geometry in Onshape:
+
+<p align="center">
+  <img src="docs/images/onshape_drone_iso.png" width="48%" alt="Onshape Parametric CAD PartStudio Viewport" />
+  <img src="docs/images/bwb_exploded_assembly.jpg" width="48%" alt="Exploded Parametric Multi-Body Assembly" />
+</p>
+<p align="center">
+  <em>Left: BWB UAV airframe with parametric aerofoil lofts and control surfaces in Onshape PartStudio.<br/>Right: Exploded multi-body internal structural assembly (ribs, spars, and skin).</em>
+</p>
+
+<p align="center">
+  <img src="docs/images/fuze_cad_assembly_iso.png" width="48%" alt="Precision Fuze Guidance Kit Assembly" />
+  <img src="docs/images/onshape_pl40_catapult_iso.png" width="48%" alt="Pneumatic Launch Rail Assembly" />
+</p>
+<p align="center">
+  <em>Left: 155mm artillery precision guidance kit (PGK) assembly with despun collar and canard linkages.<br/>Right: Pneumatic catapult launcher assembly with slider and revolute mates.</em>
+</p>
+
+<p align="center">
+  <img src="docs/images/fuze_cad_exploded.png" width="48%" alt="Exploded Subassembly Layout" />
+  <img src="docs/images/onshape_drone_top.png" width="48%" alt="Onshape Planform Top View" />
+</p>
+<p align="center">
+  <em>Left: Exploded subassembly layout of bearing, collar, and steering mechanism.<br/>Right: Top-down planform aerodynamic geometry and chord distribution.</em>
+</p>
+
 ## Quick start
 
 Requires Python 3.10+ and [uv](https://docs.astral.sh/uv/).
