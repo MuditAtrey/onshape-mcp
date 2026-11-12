@@ -14,7 +14,7 @@ Most of the product that exists today — truth-telling feedback,
 multi-view rendering, entity discovery with outward normals,
 parametric Variable Studios, FeatureScript custom-feature
 orchestration, per-feature geometric diffs, the `hints:` rotation,
-iterative agent harness via Claude Agent SDK, etc. — was built on top
+iterative agent harness, etc. — was built on top
 of that scaffolding between April 16-17, 2026.
 
 The public history of this repository was squashed into a single

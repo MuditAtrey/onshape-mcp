@@ -1,6 +1,6 @@
 # onshape-mcp
 
-A [Model Context Protocol](https://modelcontextprotocol.io) server that lets Claude and other AI agents build, inspect and edit parametric CAD in [Onshape](https://www.onshape.com): sketches, extrudes, fillets, patterns, assemblies and mates, variables, and custom FeatureScript.
+A [Model Context Protocol](https://modelcontextprotocol.io) server that lets Gemini and other AI agents build, inspect and edit parametric CAD in [Onshape](https://www.onshape.com): sketches, extrudes, fillets, patterns, assemblies and mates, variables, and custom FeatureScript.
 
 Every tool that changes the model returns a structured report of what actually changed, which warnings Onshape's regenerator raised, and hints for the next step, so an agent can check its own work instead of assuming a call succeeded.
 
@@ -49,11 +49,11 @@ To use it from an MCP client, add the server to the client's config (see [`mcp_c
 }
 ```
 
-The repo also ships a Claude Code plugin manifest in [`.claude-plugin/`](.claude-plugin/).
+The repo also ships an agent plugin manifest in [`.claude-plugin/`](.claude-plugin/).
 
 ## Agent harness and benchmark
 
-[`tools/`](tools/) contains agent loops (plain API and Claude Agent SDK) that run design briefs end to end and export STEP files.
+[`tools/`](tools/) contains agent loops that run design briefs end to end and export STEP files.
 
 [RESEARCH.md](RESEARCH.md) reports a benchmark of an agent using these tools on real engineering parts, graded against reference STEP files on volume, bounding box, topology, Boolean IoU and Chamfer distance. The main finding: the agent **executes CAD reliably but does not yet read engineering drawings reliably**. With a human-written spec it scored 1.000 on the simpler set; with a spec it extracted from the drawing itself, 0.533.
 

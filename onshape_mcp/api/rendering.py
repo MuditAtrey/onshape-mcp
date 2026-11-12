@@ -1,10 +1,10 @@
 """Shaded-view rendering + in-process image cache + crop helper.
 
-Why this exists: Claude Opus 4.7 can see images. Onshape exposes a /shadedviews
+Why this exists: Vision models like Gemini can see images. Onshape exposes a /shadedviews
 REST endpoint that returns base64 PNGs for part studios and assemblies. Without
-this, every tool returns JSON and Claude is blind to its own CAD output.
+this, every tool returns JSON and the agent is blind to its own CAD output.
 
-Anthropic's "with tools" CharXiv benchmark result (84.7% -> 91.0%) is delivered
+The "with tools" vision benchmark result is delivered
 almost entirely by a single image crop tool. We replicate that pattern here:
 render_views produces images, crop_image zooms into regions of interest.
 
@@ -152,7 +152,7 @@ class ShadedViewManager:
                 "right", "bottom") or raw comma-separated 12-float matrices.
                 Defaults to ["iso", "top", "front", "right"].
             width/height: output pixel dimensions. 1200x800 returns in ~500ms
-                per view. Opus 4.7 accepts up to 2576px long-edge natively.
+                per view. Accepts high-resolution images natively.
             pixel_size: 0.0 lets Onshape auto-fit.
             edges: include silhouette/feature edges in the render.
         """

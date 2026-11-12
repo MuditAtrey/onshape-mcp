@@ -1,13 +1,13 @@
-# Vision is the wall: lessons from benchmarking Claude Opus 4.7 on real CAD
+# Vision is the wall: lessons from benchmarking Gemini 3.6 Flash on real CAD
 
 ## TL;DR
 
-We built a benchmark to measure how well Claude Opus 4.7 (with this
-plugin) can take an engineering drawing and produce a matching CAD part.
+We built a benchmark to measure how well Gemini 3.6 Flash (with this
+server) can take an engineering drawing and produce a matching CAD part.
 After eight prompt and tool variants on a sealed eval set graded against
 ground-truth STEP files, the headline finding is sharp:
 
-**Opus 4.7 executes CAD reliably. It does not yet read engineering
+**Gemini 3.6 Flash executes CAD reliably. It does not yet read engineering
 drawings reliably.**
 
 A two-by-two settled it:
@@ -22,7 +22,7 @@ Same model, same MCP tools, same grader. The handcrafted spec wins by
 
 ## What we built
 
-The Jarvis Onshape MCP plugin gives Claude Opus 4.7 ~60 MCP tools to
+The Onshape MCP server gives Gemini 3.6 Flash ~60 MCP tools to
 drive Onshape: sketches, extrudes, fillets, mates, parametric variables,
 custom FeatureScript, multi-view rendering, entity discovery. Every
 mutating tool returns a structured truth (what changed, what warnings
@@ -104,7 +104,7 @@ Two layers of effect, both real:
 ## Why image understanding is the wall
 
 Looking at where the autonomous Phase 1 went wrong, the failure mode
-is consistent. Opus 4.7 reads the obvious features fine — outer
+is consistent. Gemini 3.6 Flash reads the obvious features fine — outer
 silhouette, primary holes, gross dimensions. It struggles with:
 
 - **Derived outlines.** A pocket whose boundary follows another
@@ -114,7 +114,7 @@ silhouette, primary holes, gross dimensions. It struggles with:
   should be holes — particularly when the iso render is ambiguous
   about depth.
 - **Small numeric callouts.** On a 1980×1530 drawing PNG, dimension
-  text often renders at 8-12 pixels after Claude's vision pipeline
+  text often renders at 8-12 pixels after the vision pipeline
   downsampling, which is the boundary where digit recognition gets
   unreliable. We added a `load_local_image` + `crop_image` flow and a
   Tesseract-OCR helper (`extract_drawing_dimensions`) to mitigate, with
@@ -126,9 +126,9 @@ good spec.
 
 ## Implications
 
-For users of the plugin: the highest-leverage workflow is
+For users of the server: the highest-leverage workflow is
 human-description-driven, not autonomous-vision-driven. Drop in a part
-description, let Claude build, iterate verbally. If you have a reference
+description, let the agent build, iterate verbally. If you have a reference
 image, invoke the vision-decompose skill, **review the structured
 output**, fix what the agent mis-read, then build.
 
@@ -147,8 +147,8 @@ CAD scores, because the conclusions are different.
 
 ## Limitations of this study
 
-- **Single model.** All experiments used Claude Opus 4.7 with extended
-  thinking. We didn't sweep across models.
+- **Single model.** All experiments used Gemini 3.6 Flash. We didn't sweep
+  across models.
 - **Small n per variant.** Most variants were evaluated on 3 briefs,
   one or two repeats. Stochastic variance is non-trivial; the 2×2
   effect sizes are large enough to be clearly real, but per-variant
@@ -169,7 +169,7 @@ CAD scores, because the conclusions are different.
 
 - `onshape_mcp/` — the MCP server. Read this if you want to understand
   the tool surface.
-- `skills/onshape/SKILL.md` — CAD build skill (loaded by Claude Code
+- `skills/onshape/SKILL.md` — CAD build skill (loaded by AI coding agents
   for any Onshape session).
 - `skills/vision-decompose/SKILL.md` — vision decomposition skill.
   Invoke via `/skill vision-decompose`.
@@ -180,8 +180,8 @@ CAD scores, because the conclusions are different.
 ## Reproduce
 
 ```
-git clone https://github.com/ReshefElisha/jarvis-onshape-mcp
-cd jarvis-onshape-mcp
+git clone https://github.com/MuditAtrey/onshape-mcp
+cd onshape-mcp
 git checkout autoresearch    # eval harness lives here
 python3.11 -m venv eval/.venv && source eval/.venv/bin/activate
 pip install cadquery-ocp trimesh numpy pytesseract

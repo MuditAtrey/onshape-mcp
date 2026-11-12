@@ -1862,10 +1862,10 @@ async def list_tools() -> list[Tool]:
             name="render_part_studio_views",
             description=(
                 "Render one or more shaded views of a Part Studio and return the PNGs so "
-                "Claude can actually see the 3D result. Use this after every feature that "
+                "the agent can actually see the 3D result. Use this after every feature that "
                 "creates or modifies visible geometry. The returned image_ids can be passed "
-                "to crop_image to zoom into suspicious regions. Claude Opus 4.7 spatial "
-                "reasoning is weak — always render the view you need rather than mentally "
+                "to crop_image to zoom into suspicious regions. Single-view vision spatial "
+                "reasoning is limited — always render the view you need rather than mentally "
                 "rotating. Default views: iso, top, front, right."
             ),
             inputSchema={

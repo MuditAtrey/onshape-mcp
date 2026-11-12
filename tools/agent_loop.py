@@ -160,7 +160,7 @@ async def run_agent(
     brief: str,
     out_dir: Path,
     *,
-    model: str = "claude-opus-4-7",
+    model: str = "gemini-2.5-flash",
     max_turns: int = 30,
 ) -> Dict[str, Any]:
     """Run the agent loop. Returns a summary dict."""
@@ -308,7 +308,7 @@ async def run_agent(
 def _cli() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--brief", required=True, help="Natural-language CAD brief")
-    parser.add_argument("--model", default="claude-opus-4-7")
+    parser.add_argument("--model", default="gemini-2.5-flash")
     parser.add_argument("--max-turns", type=int, default=30)
     parser.add_argument(
         "--out",
