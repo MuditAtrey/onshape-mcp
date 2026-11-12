@@ -37,7 +37,7 @@ chosen to exercise a specific muscle group.
 
 ## Tips when dogfooding
 
-- After each feature, ask Claude to call `describe_part_studio` so you can see the structured+visual state.
-- If Claude wastes turns on a silent `INFO: nothing was cut`, check the `changes:` block — `volume_delta_mm3: 0.0` is the tell.
+- After each feature, ask the agent to call `describe_part_studio` so you can see the structured+visual state.
+- If the agent wastes turns on a silent `INFO: nothing was cut`, check the `changes:` block — `volume_delta_mm3: 0.0` is the tell.
 - FS failures are now surfaced with the parser notice text. Read `error_message` on any `REGEN_ERROR`.
-- Paste the doc URL back to Claude if you want it to resume work on an existing document.
+- Paste the doc URL back to the agent if you want it to resume work on an existing document.

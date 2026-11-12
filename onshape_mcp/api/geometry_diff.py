@@ -1,6 +1,6 @@
 """Geometric diff between two bodydetails snapshots — "git diff for CAD".
 
-Per vup4gnen's 2026-04-17 meta-feedback: Claude has strong reflexes for
+Per vup4gnen's 2026-04-17 meta-feedback: coding models have strong reflexes for
 `git diff` (what changed?), `grep` (what's the shape?), and function
 abstraction, but no CAD equivalents. Response-layer tooling should match
 the SHAPE of the code reflexes so they fire here too.

@@ -245,7 +245,7 @@ class CustomFeatureManager:
         a top-level name equal to `feature_type`. The worked example in the
         tool description shows the minimum boilerplate.
         """
-        fs_name = fs_element_name or f"ClaudeFS_{feature_type}"
+        fs_name = fs_element_name or f"CustomFS_{feature_type}"
         fs_eid = await self.create_feature_studio(
             document_id, workspace_id, fs_name
         )

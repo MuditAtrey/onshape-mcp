@@ -68,14 +68,13 @@ async def read_resource(uri: str) -> str:
     return file_path.read_text()
 ```
 
-Claude can then read these files during conversations!
+AI agents can then read these files during conversations!
 
-#### Option 2: Claude Projects
+#### Option 2: Project Knowledge / Custom Instructions
 
-If you have Claude Pro/Teams:
 1. Create a project called "Onshape CAD Expert"
 2. Upload all `.md` files from this knowledge base
-3. Claude has access to all content in every conversation
+3. The model has access to all content in every conversation
 
 #### Option 3: System Prompts
 
@@ -350,8 +349,7 @@ To add content:
 
 ### AI/MCP
 - [Model Context Protocol](https://modelcontextprotocol.io/)
-- [Claude Documentation](https://docs.anthropic.com/)
-- [Prompt Engineering](https://docs.anthropic.com/claude/docs/prompt-engineering)
+- [Google GenAI Documentation](https://ai.google.dev/)
 
 ## Next Steps
 

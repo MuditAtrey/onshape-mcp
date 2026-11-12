@@ -8,19 +8,18 @@ authors = [
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"
-keywords = ["onshape", "cad", "mcp", "claude", "featurescript", "parametric"]
+keywords = ["onshape", "cad", "mcp", "gemini", "featurescript", "parametric"]
 dependencies = [
     "mcp>=0.1.0,<1.20.0",
     "httpx>=0.27.0",
-    "pydantic>=2.0.0",
+    "pydantic>=2.0.0,<2.13.0",
     "python-dotenv>=1.0.0",
     "starlette>=0.27.0",
     "uvicorn>=0.23.0",
     "loguru>=0.7.0",
     "pillow>=10.0.0",
-    "anthropic>=0.96.0",
-    "claude-agent-sdk>=0.1.61",
     "pytesseract>=0.3.13",
+    "google-genai>=2.33.0",
 ]
 
 [project.optional-dependencies]

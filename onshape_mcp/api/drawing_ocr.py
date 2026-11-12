@@ -1,6 +1,6 @@
 """OCR + grouping for engineering-drawing dimension callouts.
 
-Why this exists: Claude can see the drawing PNG attached to its prompt, but
+Why this exists: the agent can see the drawing PNG attached to its prompt, but
 small numeric callouts (10-20 px tall after multi-image downsampling) are
 unreliable to read. The agent under-builds at 4× wrong scale on hard-tier
 NIST drawings because the "800 mm overall" callout looks like noise.

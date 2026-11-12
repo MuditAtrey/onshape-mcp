@@ -1,29 +1,28 @@
-"""Claude-driven CAD agent loop — the "same capability as coding" dogfood.
+"""Gemini-driven CAD agent loop — autonomous CAD generation from natural language briefs.
 
-`cad_driver.py` is me (a human using Python) driving the MCP tools via
-hardcoded steps. THIS module is a fresh Claude API instance driving the
-same tools autonomously from only a natural-language brief. No step list.
+`cad_driver.py` is a scripted driver executing explicit tool steps. THIS module
+is an autonomous Gemini agent driving the MCP tools end-to-end from only a
+natural-language brief.
 
 Usage:
-    export ANTHROPIC_API_KEY=sk-ant-...
+    export GEMINI_API_KEY=...
     uv run python tools/agent_loop.py \\
         --brief "Build a 40x40x10mm plate with a central 8mm through-hole."
 
 The loop:
-    1. Create a throwaway Onshape doc + Part Studio.
-    2. Seed Claude with the SKILL.md protocols + document/workspace/element
+    1. Creates a throwaway Onshape document + Part Studio.
+    2. Seeds Gemini with the SKILL.md protocols + document/workspace/element
        IDs + the brief.
-    3. Claude picks tool calls. We execute them via server.call_tool().
+    3. Gemini picks tool calls. We execute them via server.call_tool().
        Tool results — including rendered PNGs from describe_part_studio —
-       go back into the conversation as tool_result blocks.
-    4. Loop until Claude outputs a stop reason other than tool_use (i.e.
-       ends the conversation) or we hit MAX_TURNS.
+       go back into the conversation as function responses + image blobs.
+    4. Loops until Gemini stops calling tools (i.e. reaches plain text DONE)
+       or we hit MAX_TURNS.
     5. Every tool call + response is logged; every rendered image is
        saved to the session output directory so the run is post-mortemable.
 
 The agent sees the exact same tools any future MCP client of this
-server would see, via the server's own list_tools() output. No custom
-tool schema duplication.
+server would see, via the server's own list_tools() output.
 """
 
 from __future__ import annotations
@@ -52,7 +51,6 @@ from onshape_mcp import server as S  # noqa: E402
 from onshape_mcp.api.client import OnshapeClient, OnshapeCredentials  # noqa: E402
 from onshape_mcp.api.documents import DocumentManager  # noqa: E402
 from onshape_mcp.api.partstudio import PartStudioManager  # noqa: E402
-
 
 SKILL_PATH = REPO.parent.parent / "SKILL.md"
 
@@ -93,89 +91,69 @@ def _load_skill_md() -> str:
         return "(SKILL.md not found — running without skill guide)"
 
 
-def _strip_default_from_schema(schema: Any) -> Any:
-    """Anthropic's tool-use `input_schema` rejects `default` keys in some
-    strict-validation contexts. Strip recursively; the MCP schemas use
-    them liberally."""
-    if isinstance(schema, dict):
-        return {
-            k: _strip_default_from_schema(v)
-            for k, v in schema.items()
-            if k != "default"
-        }
-    if isinstance(schema, list):
-        return [_strip_default_from_schema(x) for x in schema]
-    return schema
-
-
-async def _mcp_tools_as_anthropic_tools() -> List[Dict[str, Any]]:
-    mcp_tools = await S.list_tools()
-    filtered = [t for t in mcp_tools if t.name in AGENT_TOOLS]
-    out = []
-    for t in filtered:
-        out.append({
-            "name": t.name,
-            "description": t.description,
-            "input_schema": _strip_default_from_schema(t.inputSchema),
-        })
+def _sanitize_schema_for_genai(s: Any) -> Any:
+    """Recursively convert JSON Schema into Google GenAI compatible format.
+    Strips unsupported attributes and maps union types to single valid types.
+    """
+    if not isinstance(s, dict):
+        return s
+    out = {}
+    for k, v in s.items():
+        if k == "type":
+            if isinstance(v, list):
+                non_null = [t for t in v if t != "null"]
+                v = non_null[0] if non_null else "string"
+            out["type"] = v.upper()
+        elif k == "properties" and isinstance(v, dict):
+            out["properties"] = {pk: _sanitize_schema_for_genai(pv) for pk, pv in v.items()}
+        elif k == "items":
+            out["items"] = _sanitize_schema_for_genai(v)
+        elif k in ("description", "required", "enum"):
+            out[k] = v
     return out
 
 
-def _tool_result_blocks(
-    tool_use_id: str, result_blocks: list, out_dir: Path, step_ix: int
-) -> List[Dict[str, Any]]:
-    """Convert MCP tool response (TextContent + ImageContent) into Anthropic
-    `tool_result` content. Save each image to disk too, so the run is
-    post-mortemable from the filesystem."""
-    content: List[Dict[str, Any]] = []
-    img_ix = 0
-    for block in result_blocks:
-        btype = getattr(block, "type", None)
-        if btype == "text":
-            content.append({"type": "text", "text": block.text})
-        elif btype == "image":
-            content.append({
-                "type": "image",
-                "source": {
-                    "type": "base64",
-                    "media_type": block.mimeType,
-                    "data": block.data,
-                },
-            })
-            try:
-                png_bytes = base64.b64decode(block.data)
-                out_path = out_dir / f"{step_ix:02d}_tool{img_ix}.png"
-                out_path.write_bytes(png_bytes)
-                img_ix += 1
-            except Exception as e:
-                logger.warning(f"failed to save tool image: {e}")
-    return [{
-        "type": "tool_result",
-        "tool_use_id": tool_use_id,
-        "content": content,
-    }]
+async def _mcp_tools_as_genai_declarations() -> List[Any]:
+    from google.genai import types
+
+    mcp_tools = await S.list_tools()
+    filtered = [t for t in mcp_tools if t.name in AGENT_TOOLS]
+    declarations = []
+    for t in filtered:
+        raw_schema = dict(t.inputSchema) if hasattr(t, "inputSchema") else {}
+        cleaned_schema = _sanitize_schema_for_genai(raw_schema)
+        declarations.append(
+            types.FunctionDeclaration(
+                name=t.name,
+                description=t.description or "",
+                parameters=cleaned_schema,
+            )
+        )
+    return declarations
 
 
 async def run_agent(
     brief: str,
     out_dir: Path,
     *,
-    model: str = "gemini-2.5-flash",
+    model: str = "gemini-3.6-flash",
     max_turns: int = 30,
 ) -> Dict[str, Any]:
-    """Run the agent loop. Returns a summary dict."""
+    """Run the Gemini CAD agent loop. Returns a summary dict."""
 
-    if not os.getenv("ANTHROPIC_API_KEY"):
+    api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    if not api_key:
         raise RuntimeError(
-            "ANTHROPIC_API_KEY not set. The agent-loop needs API access. "
+            "GEMINI_API_KEY not set. The agent-loop needs Google GenAI API access. "
             "Export the key and retry."
         )
 
     try:
-        from anthropic import Anthropic
+        from google import genai
+        from google.genai import types
     except ImportError:
         raise RuntimeError(
-            "anthropic SDK not installed. Run: uv add anthropic"
+            "google-genai SDK not installed. Run: uv add google-genai"
         )
 
     ak = os.getenv("ONSHAPE_API_KEY") or os.getenv("ONSHAPE_ACCESS_KEY", "")
@@ -205,7 +183,7 @@ async def run_agent(
         logger.info(f"agent doc: {doc_url}")
         _log_event("doc_created", {"did": did, "wid": wid, "eid": eid, "url": doc_url})
 
-        anthropic_tools = await _mcp_tools_as_anthropic_tools()
+        fn_declarations = await _mcp_tools_as_genai_declarations()
         skill = _load_skill_md()
 
         system_prompt = (
@@ -225,80 +203,95 @@ async def run_agent(
             "a STEP file, then state DONE in plain text and stop using tools."
         )
 
-        client_anthropic = Anthropic()
-        messages: List[Dict[str, Any]] = [
-            {
-                "role": "user",
-                "content": f"Brief: {brief}\n\nBegin. Use tools. Describe after every mutation."
-            }
-        ]
+        ai_client = genai.Client(api_key=api_key)
+        config = types.GenerateContentConfig(
+            system_instruction=system_prompt,
+            tools=[types.Tool(function_declarations=fn_declarations)],
+            temperature=0.2,
+        )
+        chat = ai_client.chats.create(model=model, config=config)
 
         turn = 0
+        current_input = f"Brief: {brief}\n\nBegin. Use tools. Describe after every mutation."
+
         while turn < max_turns:
             turn += 1
             logger.info(f"=== TURN {turn} ===")
             _log_event("turn_start", {"turn": turn})
 
-            resp = client_anthropic.messages.create(
-                model=model,
-                max_tokens=4096,
-                system=system_prompt,
-                tools=anthropic_tools,
-                messages=messages,
-            )
+            resp = chat.send_message(current_input)
 
-            assistant_content = resp.content
-            messages.append({"role": "assistant", "content": assistant_content})
+            # Log text content
+            if resp.text:
+                _log_event("assistant_text", {"turn": turn, "text": resp.text})
+                logger.info(f"assistant: {resp.text[:400]}")
 
-            # Log every text/tool_use block so the transcript has the narrative.
-            for block in assistant_content:
-                if block.type == "text":
-                    _log_event("assistant_text", {"turn": turn, "text": block.text})
-                    logger.info(f"assistant: {block.text[:400]}")
-                elif block.type == "tool_use":
-                    _log_event("tool_use", {
-                        "turn": turn, "tool_use_id": block.id,
-                        "name": block.name, "input": block.input,
-                    })
-                    logger.info(f"tool_use: {block.name}({json.dumps(block.input, default=str)[:200]})")
-
-            if resp.stop_reason != "tool_use":
-                logger.info(f"stop_reason={resp.stop_reason} -- ending loop")
-                _log_event("stop", {"reason": resp.stop_reason})
+            # Check for function calls
+            function_calls = resp.function_calls
+            if not function_calls:
+                logger.info("No further function calls — ending loop.")
+                _log_event("stop", {"reason": "completed", "final_text": resp.text})
                 break
 
-            # Execute every tool_use in the assistant response.
-            tool_results: List[Dict[str, Any]] = []
-            for block in assistant_content:
-                if block.type != "tool_use":
-                    continue
+            response_parts = []
+            img_ix = 0
+
+            for call in function_calls:
+                call_args = dict(call.args) if call.args else {}
+                _log_event("tool_use", {
+                    "turn": turn,
+                    "name": call.name,
+                    "input": call_args,
+                })
+                logger.info(f"tool_use: {call.name}({json.dumps(call_args, default=str)[:200]})")
+
                 try:
-                    result_blocks = await S.call_tool(block.name, block.input)
+                    result_blocks = await S.call_tool(call.name, call_args)
                 except Exception as e:
                     result_blocks = [
                         type("_", (), {
                             "type": "text",
-                            "text": f"tool raised: {type(e).__name__}: {e}"
+                            "text": f"tool raised: {type(e).__name__}: {e}",
                         })()
                     ]
-                tr = _tool_result_blocks(block.id, result_blocks, out_dir, turn)
-                tool_results.extend(tr)
+
+                result_text = ""
+                for block in result_blocks:
+                    btype = getattr(block, "type", None)
+                    if btype == "text":
+                        result_text += block.text + "\n"
+                    elif btype == "image":
+                        try:
+                            png_bytes = base64.b64decode(block.data)
+                            out_path = out_dir / f"{turn:02d}_tool{img_ix}.png"
+                            out_path.write_bytes(png_bytes)
+                            img_ix += 1
+                            response_parts.append(
+                                types.Part.from_bytes(data=png_bytes, mime_type=block.mimeType)
+                            )
+                        except Exception as e:
+                            logger.warning(f"failed to save tool image: {e}")
+
+                response_parts.append(
+                    types.Part.from_function_response(
+                        name=call.name,
+                        response={"output": result_text.strip()},
+                    )
+                )
+
                 _log_event("tool_result", {
                     "turn": turn,
-                    "tool_use_id": block.id,
-                    "text_preview": "".join(
-                        c.get("text", "")[:300] for c in tr[0]["content"]
-                        if c.get("type") == "text"
-                    ),
+                    "name": call.name,
+                    "text_preview": result_text[:300],
                 })
 
-            messages.append({"role": "user", "content": tool_results})
+            current_input = response_parts
 
         summary = {
             "doc_url": doc_url,
             "document_id": did,
             "turns": turn,
-            "stop_reason": resp.stop_reason if turn else None,
+            "model": model,
             "out_dir": str(out_dir),
         }
         (out_dir / "summary.json").write_text(json.dumps(summary, indent=2))
@@ -306,9 +299,9 @@ async def run_agent(
 
 
 def _cli() -> int:
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="Gemini-driven CAD agent loop")
     parser.add_argument("--brief", required=True, help="Natural-language CAD brief")
-    parser.add_argument("--model", default="gemini-2.5-flash")
+    parser.add_argument("--model", default="gemini-3.6-flash", help="Gemini model identifier (e.g. gemini-3.6-flash, gemini-3.8-flash)")
     parser.add_argument("--max-turns", type=int, default=30)
     parser.add_argument(
         "--out",

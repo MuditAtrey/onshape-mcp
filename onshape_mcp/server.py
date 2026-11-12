@@ -72,7 +72,7 @@ logger.add(
 
 # Initialize server. The `instructions` block loads into every client
 # session (alongside SKILL.md if the user also wires that in), giving
-# Claude a categorized tool index + gotchas up front so the first 10
+# the agent a categorized tool index + gotchas up front so the first 10
 # turns aren't spent guessing tool names.
 _INSTRUCTIONS = """\
 Jarvis Onshape MCP — drive real CAD. Tools are lazy-loaded (fetch schemas via
@@ -1998,7 +1998,7 @@ async def list_tools() -> list[Tool]:
                 "Use after render_* when you need to inspect a detail — a specific face, "
                 "a feature edge, a suspicious fillet. (0,0) is top-left, (1,1) is "
                 "bottom-right. Returns a new image keyed by its own image_id. This is "
-                "the pattern behind Anthropic's CharXiv 84.7 -> 91.0% 'with tools' "
+                "the pattern behind CharXiv 84.7 -> 91.0% 'with tools' "
                 "benchmark result; use it liberally."
             ),
             inputSchema={
@@ -2254,7 +2254,7 @@ async def list_tools() -> list[Tool]:
                     },
                     "fsElementName": {
                         "type": "string",
-                        "description": "Optional name for the Feature Studio element that carries the source. Defaults to ClaudeFS_<featureType>.",
+                        "description": "Optional name for the Feature Studio element that carries the source. Defaults to CustomFS_<featureType>.",
                     },
                 },
                 "required": [
@@ -2325,7 +2325,7 @@ def _enum_specific_hints(error_message: Optional[str]) -> list[str]:
     Each enum mapped here is one we've seen recur in dogfood AND for which
     the generic hint ("read error_message, retry") would have wasted >=3
     turns vs the targeted advice. Don't add an entry unless it clears that
-    bar -- noisy hints train Claude to ignore them.
+    bar -- noisy hints train the agent to ignore them.
     """
     if not error_message:
         return []
@@ -2396,13 +2396,13 @@ def _enum_specific_hints(error_message: Optional[str]) -> list[str]:
 def _hints_for_result(result: FeatureApplyResult) -> list[str]:
     """Pick the `hints` list to attach to a tool response based on its status.
 
-    Nudges Claude toward the next reflex: inspect what just happened, or
+    Nudges the agent toward the next reflex: inspect what just happened, or
     recover from a failure, or notice when an FS custom feature would be
     cleaner than another layer of primitives. Keep each hint short and
     actionable; the downstream LLM reads these every turn.
 
     Order: enum-specific hints (when error_message names a known statusEnum)
-    come FIRST so they're the first thing Claude reads, then the generic
+    come FIRST so they're the first thing the agent reads, then the generic
     status-based hints follow.
 
     Rotation policy:
@@ -2591,7 +2591,7 @@ def _exception_json(
     the response was free text or JSON. `status` is "EXCEPTION" so callers can
     distinguish an Onshape-reported failure ("ERROR") from a plumbing failure.
 
-    Default hints point Claude at `describe_part_studio` to rediscover the
+    Default hints point the agent at `describe_part_studio` to rediscover the
     tree's current state -- an exception here usually means the feature
     wasn't even attempted on Onshape's side, so the prior state is intact.
     """
@@ -2860,7 +2860,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent | ImageConten
             # Smart default for the silent-no-op trap (dogfooder #7): a REMOVE
             # extrude on a sketch placed on a picked face cuts AWAY from the
             # face by default, which means cutting into air -- Onshape returns
-            # `INFO: nothing to cut`, helper reports ok=true, Claude moves on
+            # `INFO: nothing to cut`, helper reports ok=true, the agent moves on
             # unaware. When `oppositeDirection` isn't passed explicitly AND
             # the operation is REMOVE AND the sketch lives on a picked face,
             # default to True so the cut goes INTO material. Surface a `notes`

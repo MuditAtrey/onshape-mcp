@@ -1,15 +1,15 @@
 """Combined structured + visual snapshot of a Part Studio.
 
-Why this exists: Claude's spatial reasoning is weak but its text reasoning is
-strong; its image perception is good but unreliable for "what's missing" vibe
-checks. The right representation for Claude is BOTH:
+Why this exists: spatial reasoning from pixels alone is weak but structured text
+reasoning is strong; image perception is good but unreliable for "what's missing" vibe
+checks. The right representation for the agent is BOTH:
 
 - A structured text block: feature tree with statuses, body topology summary,
-  sketch geometry, key measurements, bounding box. Claude reasons over this
+  sketch geometry, key measurements, bounding box. The agent reasons over this
   natively, no spatial inference needed.
-- A multi-view image bundle: iso + top + front + right so Claude can catch
+- A multi-view image bundle: iso + top + front + right so the agent can catch
   visual regressions ("wait, where's the boss?"). Image_ids are cached so
-  Claude can crop any suspicious region via crop_image.
+  the agent can crop any suspicious region via crop_image.
 
 This is the single tool to call after every non-trivial mutation. Instead of
 manually chaining render + list_entities + get_features + get_mass_properties,
@@ -83,7 +83,7 @@ def _body_topology_text(entities_out: Dict[str, Any]) -> str:
             f"faces={len(faces)} ({face_breakdown}) edges={len(edges)}"
         )
         # Summarize interesting faces: every non-planar + every planar face
-        # that's >10% of total planar area (the "big" ones Claude will want
+        # that's >10% of total planar area (the "big" ones the agent will want
         # to pick for sketches).
         for f in faces:
             if f.get("type") == "PLANE":
@@ -303,10 +303,10 @@ def _mass_props_text(mp: Dict[str, Any]) -> str:
 
 
 class DescribeManager:
-    """One-shot snapshot of a Part Studio's design state for Claude's context.
+    """One-shot snapshot of a Part Studio's design state for the agent's context.
 
     Returns a `PartStudioSnapshot` with both structured text and cached
-    multi-view PNGs. The same image cache backs `crop_image`, so Claude can
+    multi-view PNGs. The same image cache backs `crop_image`, so the agent can
     zoom into any returned view.
     """
 

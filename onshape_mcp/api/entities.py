@@ -1,14 +1,14 @@
 """Entity enumeration for Part Studios.
 
 The single unblock for every tool that needs to pick geometry. Starter's
-fillet/chamfer/boolean all require deterministic IDs, but no tool gives Claude
-a pickable list. Without this, Claude can only build on standard planes and
+fillet/chamfer/boolean all require deterministic IDs, but no tool gives the agent
+a pickable list. Without this, the agent can only build on standard planes and
 "sketch on top face of extrude1" is unreachable.
 
 Strategy: hit /api/v9/partstudios/.../bodydetails (already exposes deterministic
 ids for faces AND edges -- audit claim that edges were missing was wrong; the
 raw blob just wasn't parsed for them). Enrich each entity with human-readable
-type, geometric metadata, and a one-line description Claude can read to pick
+type, geometric metadata, and a one-line description the agent can read to pick
 the right one.
 
 See scratchpad/starter-audit.md gap #2, and docs/SKETCH_PLANE_REFERENCE_GUIDE.md
@@ -356,7 +356,7 @@ def _parse_fs_frame_map(
 class EntityManager:
     """Enumerate faces, edges, vertices, bodies with deterministic IDs.
 
-    Claude calls this after every mutation before picking geometry for the
+    The agent calls this after every mutation before picking geometry for the
     next feature. IDs returned here are stable enough to drop into feature
     payloads as BTMIndividualQuery-138 deterministicIds.
     """
@@ -408,7 +408,7 @@ class EntityManager:
         Filters subset the entity lists BEFORE serialization so response
         payloads stay manageable. Field-dogfood (Raspberry Pi case, 2-part)
         saw raw responses hit 80–100 KB on moderately complex parts and
-        pushed Claude into pagination-style workarounds. Every filter is
+        pushed the agent into pagination-style workarounds. Every filter is
         independently optional; combine freely.
 
         Args:

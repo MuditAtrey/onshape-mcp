@@ -94,7 +94,7 @@ the way `fs-failure-evidence.md` did for the prior round.)
 - **`edit_sketch` cascade surprise**: addEntities lands a constraint
   that triggers cascade-remove of an unrelated existing constraint
   because the cascade detector mismatched ids. The
-  `cascaded_removals` field is the audit log — Claude should notice.
+  `cascaded_removals` field is the audit log — the agent should notice.
 - **Variable retest no-op**: `set_variable` succeeds, regen succeeds,
   but render shows unchanged geometry. Indicates the dimension
   Quantity isn't bound to the variable expression even though the
@@ -103,7 +103,7 @@ the way `fs-failure-evidence.md` did for the prior round.)
 ## Run procedure
 
 ```
-uv run python tools/agent_sdk_loop.py \
+uv run python tools/agent_loop.py \
     --brief "$(cat docs/dogfood-bracket-constraint-brief.md | head -40 | tail -25)" \
     --max-turns 50
 ```

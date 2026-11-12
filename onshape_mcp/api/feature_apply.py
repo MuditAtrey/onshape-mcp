@@ -143,7 +143,7 @@ async def apply_feature_and_check(
     # INFO means Onshape auto-adjusted something (e.g. extrude depth clamped to
     # through-all), but the feature built correctly and downstream geometry is
     # valid. Treat it as success; error_message still gets populated below so
-    # Claude can learn from the note.
+    # the agent can learn from the note.
     ok = status in ("OK", "INFO")
 
     error_message: Optional[str] = None
@@ -304,7 +304,7 @@ async def update_feature_params_and_check(
 
     Returns:
         FeatureApplyResult with the post-update featureStatus. ok=False if the
-        feature errors after the patch (so Claude learns the tweak was wrong).
+        feature errors after the patch (so the agent learns the tweak was wrong).
 
     Raises:
         ValueError: feature_id not found, or an `updates` entry has no

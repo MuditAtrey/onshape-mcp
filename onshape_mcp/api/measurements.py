@@ -1,7 +1,7 @@
-"""Numeric geometry + mass properties for Claude.
+"""Numeric geometry + mass properties for the agent.
 
-Claude's spatial reasoning is weak; its numeric reasoning is not. Every time
-Claude would have to eyeball a render to decide "is this face parallel to that
+Vision-only spatial reasoning is weak; structured numeric reasoning is not. Every time
+the agent would have to eyeball a render to decide "is this face parallel to that
 one" or "is the hole centered," give it a numeric answer instead.
 
 Two primitives:
@@ -17,7 +17,7 @@ Deliberately avoids FS-based evDistance because `qDeterministicIds` is not a
 real FS function (tried it live, SEMANTIC error). FS queries are history-based;
 there is no clean bridge from a deterministic-ID string to an FS Query that
 covers all entity types. Coordinate math is both simpler and more reliable
-for the planar/linear cases Claude cares about 95% of the time.
+for the planar/linear cases the agent cares about 95% of the time.
 """
 
 from __future__ import annotations

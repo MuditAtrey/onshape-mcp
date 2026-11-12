@@ -131,7 +131,7 @@ def test_vertical_distance_alias():
 
 def test_length_alias_maps_to_minimum_distance():
     """LENGTH is a natural-name alias (line length, slot end-to-end).
-    Regression from lgvhcnlr's bracket dogfood — Claude guessed LENGTH
+    Regression from bracket dogfood — the agent guessed LENGTH
     for a slot end-to-end dimension and got 'Unknown constraint type'."""
     r = serialize("LENGTH", entities=["slot_a", "slot_b"], value="30 mm")
     assert r["constraintType"] == "DISTANCE"

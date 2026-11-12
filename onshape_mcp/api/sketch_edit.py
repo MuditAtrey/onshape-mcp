@@ -34,7 +34,7 @@ from .feature_apply import FeatureApplyResult, apply_feature_and_check
 
 class CascadedRemoval(BaseModel):
     """One constraint that got auto-dropped because an entity it referenced
-    was in the user's removeIds. Surfaced in EditSketchResult so Claude
+    was in the user's removeIds. Surfaced in EditSketchResult so the agent
     sees the silent cleanup -- otherwise a 48->12 constraint scrub is the
     kind of thing that bites three turns later when the next addConstraint
     references a constraint id that no longer exists."""

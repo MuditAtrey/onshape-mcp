@@ -299,7 +299,7 @@ class TestFaceFrames:
         assert classified["sketch_y_axis"] == "+Y"
         assert classified["sketch_x_world"] == [1.0, 0.0, 0.0]
         assert classified["sketch_y_world"] == [0.0, 1.0, 0.0]
-        # Description carries the sketch-axis hint so Claude can read it.
+        # Description carries the sketch-axis hint so the agent can read it.
         assert "sketch-x=+X" in classified["description"]
         assert "sketch-y=+Y" in classified["description"]
 

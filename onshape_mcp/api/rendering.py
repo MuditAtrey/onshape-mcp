@@ -261,7 +261,7 @@ def load_local_image(image_path: str, max_edge: int = 1568) -> RenderedView:
 
     Lets the agent pass a filesystem reference image (from the brief) to
     `crop_image` for dimension-callout zoom-ins. Capped at 1568px long
-    edge so the multi-image API doesn't hit Anthropic's 2000-per-side
+    edge so the multi-image API doesn't hit the 2000-per-side
     limit. The runner sets max_buffer_size on the agent SDK so a single
     image returning ≤ a few MB is fine over MCP.
     """
@@ -376,7 +376,7 @@ def compose_reference_comparison(
         composite.paste(img, (x, y))
         x += img.width
 
-    # Cap at 1568px long edge — Anthropic multi-image API limit is 2000
+    # Cap at 1568px long edge — multimodal API limit is 2000
     # per side. The runner bumps SDK max_buffer_size so a few-MB PNG
     # round-trips fine.
     max_edge = 1568
@@ -417,8 +417,8 @@ def crop_cached_image(
     x2: float,
     y2: float,
 ) -> RenderedView:
-    """Crop a cached image by normalized 0..1 bounding box (Anthropic cookbook
-    schema). Returns a new RenderedView whose PNG is also placed in the cache.
+    """Crop a cached image by normalized 0..1 bounding box (normalized
+    bounding box schema). Returns a new RenderedView whose PNG is also placed in the cache.
 
     Coordinates: (0, 0) is top-left, (1, 1) is bottom-right. Values outside
     [0, 1] are clamped. x2 must be > x1 and y2 > y1.

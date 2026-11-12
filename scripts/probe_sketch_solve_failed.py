@@ -3,7 +3,7 @@
 Peer ot0309vt burned 6 turns bisecting an over-constrained pocket.
 Find out whether Onshape actually surfaces per-constraint diagnostics
 anywhere in the response — featureState, entity geometry coords, or
-a buried notices array — so we can stop leaving Claude in silence.
+a buried notices array — so we can stop leaving the agent in silence.
 
 Builds two sketches per run:
   A. Deliberately over-constrained: 2 lines with tangent + parallel +

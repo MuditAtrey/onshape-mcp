@@ -77,7 +77,7 @@ To use it from an MCP client, add the server to the client's config (see [`mcp_c
 }
 ```
 
-The repo also ships an agent plugin manifest in [`.claude-plugin/`](.claude-plugin/).
+The repo also ships standard MCP configuration in [`mcp_config.json`](mcp_config.json).
 
 ## Agent harness and benchmark
 
